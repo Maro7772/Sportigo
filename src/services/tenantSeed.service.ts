@@ -285,7 +285,12 @@ export async function seedTenantData(
     const isFreshTenant = (await models.Team.countDocuments()) === 0;
 
     // Every club needs at least one account to log in with.
-    await ensureTenantAdmin(models, club.subdomain, { name: `${club.name} Admin` });
+    // 👇 التعديل هنا: إضافة الإيميل والباسورد الافتراضيين للسيدر
+    await ensureTenantAdmin(models, club.subdomain, {
+      name: `${club.name} Admin`,
+      email: `admin@${club.subdomain}.com`,
+      password: "Admin@123456",
+    });
 
     if (isFreshTenant) {
       const palette = CLUB_PALETTES[hashString(club.subdomain) % CLUB_PALETTES.length];
