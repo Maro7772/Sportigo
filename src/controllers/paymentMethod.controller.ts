@@ -16,16 +16,6 @@ import {
 
 const SORT_FIELDS = ["name", "status", "createdAt", "updatedAt"];
 
-/**
- * Resolves the icon value from the request.
- *
- * Priority:
- *  1. Multipart file (`req.file` from `upload.single("icon")`) — preferred.
- *  2. JSON / form string `icon` field:
- *       - `"null"` or `""`  → clear the icon
- *       - any other string  → use it as-is (URL)
- *  3. Missing → `undefined` (leave unchanged on update, null on create).
- */
 function resolveIcon(req: Request): {
   value: string | null | undefined;
   uploadedPath?: string;
@@ -40,7 +30,8 @@ function resolveIcon(req: Request): {
   if (raw === null) return { value: null };
   if (typeof raw === "string") {
     const trimmed = raw.trim();
-    if (trimmed === "" || trimmed.toLowerCase() === "null") return { value: null };
+    if (trimmed === "" || trimmed.toLowerCase() === "null")
+      return { value: null };
     return { value: trimmed };
   }
 
@@ -119,6 +110,14 @@ export async function getPaymentMethod(req: Request, res: Response) {
 export async function createPaymentMethod(req: Request, res: Response) {
   const { value: icon, uploadedPath } = resolveIcon(req);
 
+  // 👇 نتأكد إن الـ icon موجود (يا إما ملف، يا إما URL مبعوت في الـ body)
+  const file = getUploadedImage(req);
+  if (!file && !icon) {
+    throw new BadRequest(
+      "Icon is required (upload a file or provide an image URL)",
+    );
+  }
+
   let created: any;
   try {
     created = await PaymentMethod.create({
@@ -139,7 +138,7 @@ export async function createPaymentMethod(req: Request, res: Response) {
       payment_method: serializePaymentMethod(req, created.toObject()),
     },
     201,
-    "Payment method created successfully"
+    "Payment method created successfully",
   );
 }
 
@@ -159,7 +158,8 @@ export async function updatePaymentMethod(req: Request, res: Response) {
 
   if (req.body.name !== undefined) paymentMethod.name = req.body.name;
   if (req.body.status !== undefined) paymentMethod.status = req.body.status;
-  if (req.body.description !== undefined) paymentMethod.description = req.body.description;
+  if (req.body.description !== undefined)
+    paymentMethod.description = req.body.description;
 
   const { value: newIcon, uploadedPath } = resolveIcon(req);
   const previousIcon = paymentMethod.icon;
@@ -186,7 +186,7 @@ export async function updatePaymentMethod(req: Request, res: Response) {
       payment_method: serializePaymentMethod(req, paymentMethod.toObject()),
     },
     200,
-    "Payment method updated successfully"
+    "Payment method updated successfully",
   );
 }
 
@@ -198,10 +198,12 @@ export async function deletePaymentMethod(req: Request, res: Response) {
   const paymentMethod = await PaymentMethod.findById(req.params.id);
   if (!paymentMethod) throw new NotFound("Payment method not found");
 
-  const ordersCount = await Order.countDocuments({ payment_method_id: paymentMethod._id });
+  const ordersCount = await Order.countDocuments({
+    payment_method_id: paymentMethod._id,
+  });
   if (ordersCount > 0) {
     throw new ConflictError(
-      `Cannot delete this payment method: it is used by ${ordersCount} order(s). Deactivate it instead.`
+      `Cannot delete this payment method: it is used by ${ordersCount} order(s). Deactivate it instead.`,
     );
   }
 
@@ -214,7 +216,7 @@ export async function deletePaymentMethod(req: Request, res: Response) {
     res,
     { id: req.params.id },
     200,
-    "Payment method deleted successfully"
+    "Payment method deleted successfully",
   );
 }
 
@@ -225,10 +227,12 @@ export async function deletePaymentMethod(req: Request, res: Response) {
 export async function bulkDeletePaymentMethods(req: Request, res: Response) {
   const ids: string[] = req.body.ids;
 
-  const ordersCount = await Order.countDocuments({ payment_method_id: { $in: ids } });
+  const ordersCount = await Order.countDocuments({
+    payment_method_id: { $in: ids },
+  });
   if (ordersCount > 0) {
     throw new ConflictError(
-      `Cannot delete: some payment methods are used by ${ordersCount} order(s). Deactivate them instead.`
+      `Cannot delete: some payment methods are used by ${ordersCount} order(s). Deactivate them instead.`,
     );
   }
 
@@ -247,6 +251,6 @@ export async function bulkDeletePaymentMethods(req: Request, res: Response) {
     res,
     { deletedCount: result.deletedCount },
     200,
-    `${result.deletedCount} payment method(s) deleted successfully`
+    `${result.deletedCount} payment method(s) deleted successfully`,
   );
 }

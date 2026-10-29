@@ -23,33 +23,46 @@ const router = Router();
 
 router.use(authenticate, authorize("super_admin"));
 
-router.get("/", validate(listPaymentMethodsSchema), catchAsync(listPaymentMethods));
+router.get(
+  "/",
+  validate(listPaymentMethodsSchema),
+  catchAsync(listPaymentMethods),
+);
 router.get("/select", catchAsync(selectPaymentMethods));
 
-router.post("/bulk-delete", validate(bulkDeleteSchema), catchAsync(bulkDeletePaymentMethods));
-router.delete("/bulk", validate(bulkDeleteSchema), catchAsync(bulkDeletePaymentMethods));
+router.post(
+  "/bulk-delete",
+  validate(bulkDeleteSchema),
+  catchAsync(bulkDeletePaymentMethods),
+);
+router.delete(
+  "/bulk",
+  validate(bulkDeleteSchema),
+  catchAsync(bulkDeletePaymentMethods),
+);
 
 router.get("/:id", validate(idParamSchema), catchAsync(getPaymentMethod));
 
+// 👇 imageUpload قبل validate
 router.post(
   "/",
   imageUpload,
   validate(createPaymentMethodSchema),
-  catchAsync(createPaymentMethod)
+  catchAsync(createPaymentMethod),
 );
 
 router.put(
   "/:id",
   imageUpload,
   validate(updatePaymentMethodSchema),
-  catchAsync(updatePaymentMethod)
+  catchAsync(updatePaymentMethod),
 );
 
 router.patch(
   "/:id",
   imageUpload,
   validate(updatePaymentMethodSchema),
-  catchAsync(updatePaymentMethod)
+  catchAsync(updatePaymentMethod),
 );
 
 router.delete("/:id", validate(idParamSchema), catchAsync(deletePaymentMethod));
