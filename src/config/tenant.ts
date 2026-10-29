@@ -87,7 +87,6 @@ export async function dropTenantDatabase(subdomain: string): Promise<void> {
   const connection = getTenantConnection(subdomain);
 
   await connection.dropDatabase();
-  await connection.close();
   tenantConnections.delete(dbName);
 }
 

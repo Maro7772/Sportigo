@@ -72,10 +72,4 @@ export const env = {
    */
   TENANT_DB_PREFIX: str("TENANT_DB_PREFIX", ""),
 
-  /**
-   * Password of the first admin created in a new tenant database.
-   * The email is always `admin@<subdomain>.com`; both should be changed
-   * after the first login.
-   */
-  TENANT_DEFAULT_PASSWORD: str("TENANT_DEFAULT_PASSWORD", "123456"),
 };

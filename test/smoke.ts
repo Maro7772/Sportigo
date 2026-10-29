@@ -44,8 +44,6 @@ async function main(): Promise<void> {
   process.env.SUPER_ADMIN_EMAIL = "admin@smoke.local";
   process.env.SUPER_ADMIN_PASSWORD = "Admin@123456";
   process.env.CORS_ORIGINS = "*";
-  // Password of the first admin created inside every new club database.
-  process.env.TENANT_DEFAULT_PASSWORD = "Tenant@123456";
 
   const { connectDB, disconnectDB } = await import("../src/config/db");
   const { createApp } = await import("../src/app");
@@ -562,6 +560,7 @@ async function main(): Promise<void> {
         subdomain: "expired-club",
         start_date: new Date(Date.now() - 40 * DAY).toISOString(),
         end_date: new Date(Date.now() - 10 * DAY).toISOString(),
+        admin_password: TENANT_PASSWORD,
       },
     });
     eq("create club past grace -> 201", expiredClub.status, 201);
@@ -825,6 +824,7 @@ async function main(): Promise<void> {
         package_id: packageId,
         start_date: new Date(Date.now() - 10 * DAY).toISOString(),
         end_date: new Date(Date.now() + 300 * DAY).toISOString(),
+        admin_password: TENANT_PASSWORD,
       },
     });
     eq("create tenant club -> 201", tenantClub.status, 201);
@@ -1493,6 +1493,7 @@ async function main(): Promise<void> {
         subdomain: "smoke-tenant-b",
         start_date: new Date(Date.now() - 5 * DAY).toISOString(),
         end_date: new Date(Date.now() + 100 * DAY).toISOString(),
+        admin_password: TENANT_PASSWORD,
       },
     });
     eq("create second tenant club -> 201", secondTenant.status, 201);
@@ -1628,6 +1629,7 @@ async function main(): Promise<void> {
         status: false,
         start_date: new Date(Date.now() - 5 * DAY).toISOString(),
         end_date: new Date(Date.now() + 100 * DAY).toISOString(),
+        admin_password: TENANT_PASSWORD,
       },
     });
     eq("create disabled club -> 201", disabledClub.status, 201);

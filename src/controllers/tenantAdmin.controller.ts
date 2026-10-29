@@ -41,7 +41,7 @@ export async function getClubTenant(req: Request, res: Response) {
 export async function initClubTenant(req: Request, res: Response) {
   const club = await findClub(String(req.params.id));
 
-  const { settings, admin } = await initTenantDatabase({
+  const { settings, admin, admin_password } = await initTenantDatabase({
     subdomain: club.subdomain,
     name: club.name,
   });
@@ -60,10 +60,12 @@ export async function initClubTenant(req: Request, res: Response) {
             email: admin.email,
             role: admin.role,
             created: true,
+            password: admin_password,
           }
         : {
             email: defaultTenantAdminEmail(club.subdomain),
             created: false,
+            password: null,
           },
       ...stats,
     },

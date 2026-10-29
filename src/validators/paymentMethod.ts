@@ -6,6 +6,7 @@ export const createPaymentMethodSchema = z.object({
     name: z.string().trim().min(2).max(100),
     status: z.boolean().optional(),
     description: z.string().trim().max(1000).optional().nullable(),
+    icon: z.string().trim().max(500).optional().nullable(),
   }),
 });
 
@@ -16,6 +17,7 @@ export const updatePaymentMethodSchema = z.object({
       name: z.string().trim().min(2).max(100).optional(),
       status: z.boolean().optional(),
       description: z.string().trim().max(1000).optional().nullable(),
+      icon: z.string().trim().max(500).optional().nullable(),
     })
     .refine((data) => Object.keys(data).length > 0, {
       message: "At least one field is required",

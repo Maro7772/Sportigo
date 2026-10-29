@@ -56,6 +56,7 @@ export async function createPaymentMethod(req: Request, res: Response) {
     name: req.body.name,
     status: req.body.status ?? true,
     description: req.body.description ?? null,
+    icon: req.body.icon ?? null,
   });
 
   return SuccessResponse(
@@ -73,6 +74,7 @@ export async function updatePaymentMethod(req: Request, res: Response) {
   if (req.body.name !== undefined) paymentMethod.name = req.body.name;
   if (req.body.status !== undefined) paymentMethod.status = req.body.status;
   if (req.body.description !== undefined) paymentMethod.description = req.body.description;
+  if (req.body.icon !== undefined) paymentMethod.icon = req.body.icon;
 
   await paymentMethod.save();
 
