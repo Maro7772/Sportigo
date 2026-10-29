@@ -7,6 +7,7 @@ import { SuccessResponse } from "../utils/response";
 import { buildListQuery, parseBoolean } from "../utils/listQuery";
 import { buildPaginationMeta } from "../utils/pagination";
 import {
+  absoluteUploadUrl,
   getUploadedImage,
   publicUploadUrl,
   removeUploadedFile,
@@ -46,6 +47,13 @@ function resolveIcon(req: Request): {
   return { value: undefined };
 }
 
+function serializePaymentMethod(req: Request, item: { icon?: string | null }) {
+  return {
+    ...item,
+    icon: absoluteUploadUrl(req, item.icon),
+  };
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                    List                                    */
 /* -------------------------------------------------------------------------- */
@@ -71,7 +79,7 @@ export async function listPaymentMethods(req: Request, res: Response) {
   ]);
 
   return SuccessResponse(res, {
-    items: items.map((item) => ({ ...item, icon_url: item.icon })),
+    items: items.map((item) => serializePaymentMethod(req, item)),
     pagination: buildPaginationMeta(total, page, limit),
   });
 }
@@ -80,14 +88,14 @@ export async function listPaymentMethods(req: Request, res: Response) {
 /*                                   Select                                   */
 /* -------------------------------------------------------------------------- */
 
-export async function selectPaymentMethods(_req: Request, res: Response) {
+export async function selectPaymentMethods(req: Request, res: Response) {
   const items = await PaymentMethod.find({ status: true })
     .select("name description icon")
     .sort({ name: 1 })
     .lean();
 
   return SuccessResponse(res, {
-    items: items.map((item) => ({ ...item, icon_url: item.icon })),
+    items: items.map((item) => serializePaymentMethod(req, item)),
   });
 }
 
@@ -100,7 +108,7 @@ export async function getPaymentMethod(req: Request, res: Response) {
   if (!paymentMethod) throw new NotFound("Payment method not found");
 
   return SuccessResponse(res, {
-    payment_method: { ...paymentMethod, icon_url: paymentMethod.icon },
+    payment_method: serializePaymentMethod(req, paymentMethod),
   });
 }
 
@@ -128,10 +136,7 @@ export async function createPaymentMethod(req: Request, res: Response) {
   return SuccessResponse(
     res,
     {
-      payment_method: {
-        ...created.toObject(),
-        icon_url: created.icon,
-      },
+      payment_method: serializePaymentMethod(req, created.toObject()),
     },
     201,
     "Payment method created successfully"
@@ -178,10 +183,7 @@ export async function updatePaymentMethod(req: Request, res: Response) {
   return SuccessResponse(
     res,
     {
-      payment_method: {
-        ...paymentMethod.toObject(),
-        icon_url: paymentMethod.icon,
-      },
+      payment_method: serializePaymentMethod(req, paymentMethod.toObject()),
     },
     200,
     "Payment method updated successfully"

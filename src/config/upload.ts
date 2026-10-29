@@ -79,11 +79,46 @@ export function publicUploadUrl(filename: string): string {
   return `/uploads/${filename}`;
 }
 
+function requestOrigin(req: { protocol: string; get(name: string): string | undefined }): string {
+  if (env.PUBLIC_BASE_URL) return env.PUBLIC_BASE_URL;
+  return `${req.protocol}://${req.get("host") ?? "localhost"}`;
+}
+
+/** Turns a stored upload path into a full public URL (`https://sportego.org/uploads/...`). */
+export function absoluteUploadUrl(
+  req: { protocol: string; get(name: string): string | undefined },
+  url: string | null | undefined
+): string | null {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) return url;
+
+  const pathname = url.startsWith("/") ? url : `/${url}`;
+  return `${requestOrigin(req)}${pathname}`;
+}
+
+function uploadPathname(url: string): string | null {
+  if (url.startsWith("/uploads/")) return url;
+
+  try {
+    if (/^https?:\/\//i.test(url)) {
+      const pathname = new URL(url).pathname;
+      return pathname.startsWith("/uploads/") ? pathname : null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
 /** Converts a public upload URL into its absolute path on disk. */
 export function uploadPathFromUrl(url: string | null | undefined): string | null {
-  if (!url || !url.startsWith("/uploads/")) return null;
+  if (!url) return null;
 
-  const filename = path.basename(url);
+  const pathname = uploadPathname(url);
+  if (!pathname) return null;
+
+  const filename = path.basename(pathname);
   return path.join(UPLOAD_DIR, filename);
 }
 

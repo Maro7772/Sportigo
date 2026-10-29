@@ -363,8 +363,12 @@ export function buildOpenApiSpec() {
     delete: {
       tags: ["Super Admin - Games"],
       summary: "Delete Game",
+      description: "Deletes the game and its catalog actions/packages. Fails with 409 if clubs are subscribed unless `?force=true`.",
       security: [{ SuperAdminAuth: [] }],
-      parameters: idParam(),
+      parameters: [
+        ...idParam(),
+        { name: "force", in: "query", schema: { type: "boolean" }, description: "Cascade delete clubs that use this game's packages" },
+      ],
       responses: singleResponse("id", "6ae2e6e0a8448da0f3c60dc0", 200, "Game deleted successfully"),
     },
   };
@@ -698,6 +702,7 @@ export function buildOpenApiSpec() {
         name: "InstaPay",
         status: true,
         description: "Transfer to instapay address: scouting@instapay",
+        icon: "https://sportego.org/uploads/instapay.png",
       }),
     },
     post: {
@@ -1155,6 +1160,7 @@ export function buildOpenApiSpec() {
                       name: "InstaPay",
                       description: "Send payment to: scouting@instapay",
                       status: true,
+                      icon: "https://sportego.org/uploads/instapay.png",
                     },
                     {
                       _id: "6ae2e6e0a8448da0f3c60df1",

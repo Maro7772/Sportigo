@@ -12,18 +12,33 @@ function num(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function bool(name: string, fallback: boolean): boolean {
+  const value = process.env[name];
+  if (value === undefined || value === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
 /** Extracts the database name from a MongoDB URI (`.../ahly?authSource=...`). */
 function dbNameFromUri(uri: string): string {
   const withoutProtocol = uri.replace(/^mongodb(\+srv)?:\/\//i, "");
   const slashIndex = withoutProtocol.indexOf("/");
   if (slashIndex === -1) return "";
 
-  return withoutProtocol.slice(slashIndex + 1).split("?")[0].trim();
+  return withoutProtocol
+    .slice(slashIndex + 1)
+    .split("?")[0]
+    .trim();
 }
 
 const nodeEnv = str("NODE_ENV", "development");
-const jwtSecret = str("JWT_SECRET", "dev-only-insecure-secret-change-me-please");
-const mongoUri = str("MONGODB_URI", "mongodb://127.0.0.1:27017/scouting_super_admin");
+const jwtSecret = str(
+  "JWT_SECRET",
+  "dev-only-insecure-secret-change-me-please",
+);
+const mongoUri = str(
+  "MONGODB_URI",
+  "mongodb://127.0.0.1:27017/scouting_super_admin",
+);
 
 /**
  * The central database. When the URI already contains one (`.../sportig`) it
@@ -64,12 +79,16 @@ export const env = {
   UPLOAD_DIR: str("UPLOAD_DIR", "uploads"),
   /** Maximum accepted image size in megabytes. */
   UPLOAD_MAX_MB: num("UPLOAD_MAX_MB", 5),
+  /**
+   * Public origin used to build absolute upload URLs
+   * (e.g. https://sportego.org). When empty, the current request host is used.
+   */
+  PUBLIC_BASE_URL: str("PUBLIC_BASE_URL", "").replace(/\/$/, ""),
 
   /**
-   * Prefix added to the tenant database name.
+   * Prefix added to the tenant database name when TENANT_SAME_DATABASE=false.
    * Empty by default: the subdomain itself is the database name
    * (e.g. `ahly.example.com` -> database `ahly`).
    */
   TENANT_DB_PREFIX: str("TENANT_DB_PREFIX", ""),
-
 };

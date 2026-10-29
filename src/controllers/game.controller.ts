@@ -3,13 +3,12 @@ import type { Request, Response } from "express";
 import { Game, type IGame } from "../models/Game";
 import { Action } from "../models/Action";
 import { Package } from "../models/Package";
-import { Club } from "../models/Club"; // 👈 ضفنا الكلوب
-import { Order } from "../models/Order"; // 👈 ضفنا الأوردر
+import { Club } from "../models/Club";
+import { Order } from "../models/Order";
 import { ConflictError, NotFound } from "../errors";
 import { SuccessResponse } from "../utils/response";
 import { buildListQuery, parseBoolean } from "../utils/listQuery";
 import { buildPaginationMeta } from "../utils/pagination";
-import { dropTenantDatabase } from "../config/tenant"; // لو محتاج تمسح الداتابيز بتاعت النادي
 
 const SORT_FIELDS = ["name", "status", "createdAt", "updatedAt"];
 
@@ -80,105 +79,61 @@ export async function deleteGame(req: Request, res: Response) {
   const game = await Game.findById(req.params.id);
   if (!game) throw new NotFound("Game not found");
 
-  const force = req.query.force === "true"; // 👈 بنشوف لو المستخدم طالب حذف إجباري
+  const force = req.query.force === "true";
+  const deletedCount = await cascadeDeleteGames([String(game._id)], force);
 
-  const [actionsCount, packagesCount] = await Promise.all([
-    Action.countDocuments({ game_id: game._id }),
-    Package.countDocuments({ game_id: game._id }),
-  ]);
-
-  // لو مفيش force ومفيش حاجات مرتبطة، أو لو فيه force هنمسح
-  if (!force && (actionsCount > 0 || packagesCount > 0)) {
-    throw new ConflictError(
-      `Cannot delete this game: it is used by ${actionsCount} action(s) and ${packagesCount} package(s). Use ?force=true to cascade delete.`
-    );
-  }
-
-  // 1. نجيب كل الباكدجات اللي مرتبطة باللعبة دي
-  const packages = await Package.find({ game_id: game._id }).select("_id").lean();
-  const packageIds = packages.map(p => p._id);
-
-  if (packageIds.length > 0) {
-    // 2. نشوف فيه كلوبات بتستخدم الباكدجات دي ولا لأ
-    const clubs = await Club.find({ package_id: { $in: packageIds } }).select("_id subdomain").lean();
-    const clubIds = clubs.map(c => c._id);
-
-    if (clubIds.length > 0) {
-      // 3. نمسح الأوردرات اللي بتخص الكلوبات دي
-      await Order.deleteMany({ club_id: { $in: clubIds } });
-      
-      // 4. نمسح الكلوبات نفسها (اختياري: ممكن تمسح الـ tenant databases كمان)
-      await Club.deleteMany({ _id: { $in: clubIds } });
-      
-      // (لو عايز تمسح الـ tenant databases بتاعت الكلوبات دي، فعل السطر ده:)
-      // for (const club of clubs) {
-      //   await dropTenantDatabase(club.subdomain).catch(() => {});
-      // }
-    }
-
-    // 5. نمسح الأوردرات المتبقية اللي بتشاور على الباكدجات دي (لو فيه أوردرات مش مرتبطة بكلوب)
-    await Order.deleteMany({ package_id: { $in: packageIds } });
-
-    // 6. نمسح الباكدجات
-    await Package.deleteMany({ _id: { $in: packageIds } });
-  }
-
-  // 7. نمسح الأكشنز
-  await Action.deleteMany({ game_id: game._id });
-
-  // 8. أخيراً نمسح اللعبة
-  await game.deleteOne();
-
-  return SuccessResponse(res, { id: req.params.id }, 200, "Game and all related data deleted successfully");
+  return SuccessResponse(
+    res,
+    { id: req.params.id, deletedCount },
+    200,
+    "Game and all related data deleted successfully"
+  );
 }
 
 export async function bulkDeleteGames(req: Request, res: Response) {
   const ids: string[] = req.body.ids;
-  const force = req.query.force === "true"; // 👈 بنشوف لو المستخدم طالب حذف إجباري
+  const force = req.query.force === "true";
+  const deletedCount = await cascadeDeleteGames(ids, force);
 
-  const [actionsCount, packagesCount] = await Promise.all([
-    Action.countDocuments({ game_id: { $in: ids } }),
-    Package.countDocuments({ game_id: { $in: ids } }),
-  ]);
+  return SuccessResponse(
+    res,
+    { deletedCount },
+    200,
+    `${deletedCount} game(s) and their related data deleted successfully`
+  );
+}
 
-  if (!force && (actionsCount > 0 || packagesCount > 0)) {
+/**
+ * Super Admin can always remove catalog data (actions/packages) with the game.
+ * Clubs subscribed to those packages are the real blocker unless `force=true`.
+ */
+async function cascadeDeleteGames(ids: string[], force: boolean): Promise<number> {
+  const packages = await Package.find({ game_id: { $in: ids } }).select("_id").lean();
+  const packageIds = packages.map((pkg) => pkg._id);
+
+  const clubs = packageIds.length
+    ? await Club.find({ package_id: { $in: packageIds } }).select("_id subdomain").lean()
+    : [];
+
+  if (clubs.length > 0 && !force) {
     throw new ConflictError(
-      `Cannot delete: some games are used by ${actionsCount} action(s) and ${packagesCount} package(s). Use ?force=true to cascade delete.`
+      `Cannot delete this game: it is used by ${clubs.length} club(s). Use ?force=true to cascade delete.`
     );
   }
 
-  // 1. نجيب الباكدجات
-  const packages = await Package.find({ game_id: { $in: ids } }).select("_id").lean();
-  const packageIds = packages.map(p => p._id);
-
   if (packageIds.length > 0) {
-    // 2. نجيب الكلوبات
-    const clubs = await Club.find({ package_id: { $in: packageIds } }).select("_id subdomain").lean();
-    const clubIds = clubs.map(c => c._id);
+    const clubIds = clubs.map((club) => club._id);
 
     if (clubIds.length > 0) {
-      // 3. نمسح الأوردرات والكلوبات
       await Order.deleteMany({ club_id: { $in: clubIds } });
       await Club.deleteMany({ _id: { $in: clubIds } });
-      
-      // for (const club of clubs) { await dropTenantDatabase(club.subdomain).catch(() => {}); }
     }
 
-    // 5. نمسح الأوردرات والباكدجات
     await Order.deleteMany({ package_id: { $in: packageIds } });
     await Package.deleteMany({ _id: { $in: packageIds } });
   }
 
-  // 7. نمسح الأكشنز
   await Action.deleteMany({ game_id: { $in: ids } });
-
-  // 8. نمسح الألعاب
   const result = await Game.deleteMany({ _id: { $in: ids } });
-
-  return SuccessResponse(
-    res,
-    { deletedCount: result.deletedCount },
-    200,
-    `${result.deletedCount} game(s) and their related data deleted successfully`
-  );
+  return result.deletedCount ?? 0;
 }

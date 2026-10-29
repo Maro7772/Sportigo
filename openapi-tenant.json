@@ -595,7 +595,8 @@
                         "_id": "6ae2e6e0a8448da0f3c60df0",
                         "name": "InstaPay",
                         "description": "Send payment to: scouting@instapay",
-                        "status": true
+                        "status": true,
+                        "icon": "https://sportego.org/uploads/instapay.png"
                       },
                       {
                         "_id": "6ae2e6e0a8448da0f3c60df1",
