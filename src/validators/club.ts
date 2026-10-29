@@ -25,13 +25,14 @@ export const createClubSchema = z.object({
       cycle_id: objectIdSchema.optional().nullable(),
       start_date: z.coerce.date().optional().nullable(),
       end_date: z.coerce.date().optional().nullable(),
-      admin_name: z.string().trim().min(2).max(120).optional(),
-      admin_email: z.string().trim().toLowerCase().email("Invalid admin email").max(190).optional(),
+
+      // 👇 بقوا إجباريين — الـ super admin بيكتبهم بنفسه
+      admin_name: z.string().trim().min(2).max(120),
+      admin_email: z.string().trim().toLowerCase().email("Invalid admin email").max(190),
       admin_password: z
         .string()
         .min(6, "Admin password must be at least 6 characters")
-        .max(128)
-        .optional(),
+        .max(128),
     })
     .refine(
       (data) =>
@@ -48,6 +49,7 @@ export const updateClubSchema = z.object({
       status: z.boolean().optional(),
       subdomain: subdomainSchema.optional(),
       package_id: objectIdSchema.optional().nullable(),
+      cycle_id: objectIdSchema.optional().nullable(),   // 👈 ضفناها (كانت ناقصة)
       start_date: z.coerce.date().optional().nullable(),
       end_date: z.coerce.date().optional().nullable(),
     })

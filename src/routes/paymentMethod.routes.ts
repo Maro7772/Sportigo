@@ -17,6 +17,7 @@ import {
   listPaymentMethodsSchema,
   updatePaymentMethodSchema,
 } from "../validators/paymentMethod";
+import { imageUpload } from "../config/upload";
 
 const router = Router();
 
@@ -29,9 +30,28 @@ router.post("/bulk-delete", validate(bulkDeleteSchema), catchAsync(bulkDeletePay
 router.delete("/bulk", validate(bulkDeleteSchema), catchAsync(bulkDeletePaymentMethods));
 
 router.get("/:id", validate(idParamSchema), catchAsync(getPaymentMethod));
-router.post("/", validate(createPaymentMethodSchema), catchAsync(createPaymentMethod));
-router.put("/:id", validate(updatePaymentMethodSchema), catchAsync(updatePaymentMethod));
-router.patch("/:id", validate(updatePaymentMethodSchema), catchAsync(updatePaymentMethod));
+
+router.post(
+  "/",
+  imageUpload,
+  validate(createPaymentMethodSchema),
+  catchAsync(createPaymentMethod)
+);
+
+router.put(
+  "/:id",
+  imageUpload,
+  validate(updatePaymentMethodSchema),
+  catchAsync(updatePaymentMethod)
+);
+
+router.patch(
+  "/:id",
+  imageUpload,
+  validate(updatePaymentMethodSchema),
+  catchAsync(updatePaymentMethod)
+);
+
 router.delete("/:id", validate(idParamSchema), catchAsync(deletePaymentMethod));
 
 export default router;

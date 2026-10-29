@@ -9,8 +9,49 @@ const orderStatusSchema = z.enum([
   "refunded",
 ]);
 
-const paymentProofSchema = z.string().trim().max(2000).optional().nullable();
-const paymentReferenceSchema = z.string().trim().max(200).optional().nullable();
+/**
+ * multipart/form-data sends everything as strings.
+ * We coerce numbers / dates gracefully so the same schema works for
+ * application/json and multipart/form-data.
+ */
+const coerceNumber = z.preprocess(
+  (val) => {
+    if (val === undefined || val === null || val === "") return undefined;
+    const n = Number(val);
+    return Number.isFinite(n) ? n : val;
+  },
+  z.number().min(0).optional()
+);
+
+const paymentReferenceSchema = z
+  .preprocess(
+    (val) => (val === "" ? null : val),
+    z.string().trim().max(200).nullable()
+  )
+  .optional();
+
+const notesSchema = z
+  .preprocess(
+    (val) => (val === "" ? null : val),
+    z.string().trim().max(1000).nullable()
+  )
+  .optional();
+
+const paidAtSchema = z
+  .preprocess(
+    (val) => (val === "" ? null : val),
+    z.coerce.date().nullable()
+  )
+  .optional();
+
+// Payment proof is a FILE via multipart (`req.files.image`), but we also allow
+// a string URL in the body as a fallback.
+const paymentProofUrlSchema = z
+  .preprocess(
+    (val) => (val === "" ? null : val),
+    z.string().trim().max(2000).nullable()
+  )
+  .optional();
 
 export const createOrderSchema = z.object({
   body: z.object({
@@ -18,14 +59,14 @@ export const createOrderSchema = z.object({
     package_id: objectIdSchema,
     cycle_id: objectIdSchema.optional().nullable(),
     payment_method_id: objectIdSchema,
-    price: z.number().min(0).optional(),
-    discount: z.number().min(0).optional(),
-    fine: z.number().min(0).optional(),
+    price: coerceNumber,
+    discount: coerceNumber,
+    fine: coerceNumber,
     status: orderStatusSchema.optional(),
-    payment_proof: paymentProofSchema,
+    payment_proof: paymentProofUrlSchema, // optional — usually a file
     payment_reference: paymentReferenceSchema,
-    paid_at: z.coerce.date().optional().nullable(),
-    notes: z.string().trim().max(1000).optional().nullable(),
+    paid_at: paidAtSchema,
+    notes: notesSchema,
   }),
 });
 
@@ -37,14 +78,14 @@ export const updateOrderSchema = z.object({
       package_id: objectIdSchema.optional(),
       cycle_id: objectIdSchema.optional().nullable(),
       payment_method_id: objectIdSchema.optional(),
-      price: z.number().min(0).optional(),
-      discount: z.number().min(0).optional(),
-      fine: z.number().min(0).optional(),
+      price: coerceNumber,
+      discount: coerceNumber,
+      fine: coerceNumber,
       status: orderStatusSchema.optional(),
-      payment_proof: paymentProofSchema,
+      payment_proof: paymentProofUrlSchema,
       payment_reference: paymentReferenceSchema,
-      paid_at: z.coerce.date().optional().nullable(),
-      notes: z.string().trim().max(1000).optional().nullable(),
+      paid_at: paidAtSchema,
+      notes: notesSchema,
     })
     .refine((data) => Object.keys(data).length > 0, {
       message: "At least one field is required",
@@ -60,7 +101,7 @@ export const approveOrderSchema = z.object({
   params: idParamSchema.shape.params,
   body: z
     .object({
-      notes: z.string().trim().max(1000).optional().nullable(),
+      notes: notesSchema,
     })
     .default({}),
 });
@@ -73,7 +114,7 @@ export const rejectOrderSchema = z.object({
       .trim()
       .min(3, "Rejection reason must be at least 3 characters")
       .max(1000),
-    notes: z.string().trim().max(1000).optional().nullable(),
+    notes: notesSchema,
   }),
 });
 

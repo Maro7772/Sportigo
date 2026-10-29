@@ -6,6 +6,7 @@ export interface IClub {
   /** Unique tenant subdomain (e.g. "ahly" -> ahly.example.com) */
   subdomain: string;
   package_id?: Types.ObjectId | null;
+  cycle_id?: Types.ObjectId | null;
   start_date?: Date | null;
   end_date?: Date | null;
   createdAt: Date;
@@ -32,6 +33,10 @@ const clubSchema = new Schema<IClub, ClubModel>(
       ref: "Package",
       default: null,
       index: true,
+    },
+    cycle_id: {
+      type: Schema.Types.ObjectId,
+      default: null,
     },
     start_date: { type: Date, default: null },
     end_date: { type: Date, default: null, index: true },

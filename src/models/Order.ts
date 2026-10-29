@@ -5,34 +5,28 @@ import { nextOrderNumber } from "../services/orderNumber.service";
 export type OrderStatus = "pending" | "paid" | "rejected" | "cancelled" | "refunded";
 
 export interface IOrder {
-  /** Human-readable reference, e.g. ORD-2026-000123. */
   order_number: string;
   club_id: Types.ObjectId;
   package_id: Types.ObjectId;
-  /** Package cycle that was purchased (snapshot values are stored below). */
   cycle_id?: Types.ObjectId | null;
+  /** Snapshot of the cycle name at purchase time (so we can display it without joining). */
+  cycle_name?: string | null;
   payment_method_id: Types.ObjectId;
   price: number;
-  /** Absolute discount amount (money). */
   discount: number;
-  /** Late payment / penalty amount (money). */
   fine: number;
-  /** Computed: price - discount + fine (never below 0). */
   final_price: number;
   status: OrderStatus;
-  /** Payment screenshot / receipt URL uploaded by the club. */
   payment_proof?: string | null;
-  /** Bank transfer / wallet reference sent by the club. */
   payment_reference?: string | null;
   paid_at?: Date | null;
-  /** Super admin who approved (or rejected) the payment. */
   approved_by?: Types.ObjectId | null;
+  /** Snapshot of the approver's name (so we can show it without joining). */
+  approved_by_name?: string | null;
   approved_at?: Date | null;
   rejected_at?: Date | null;
   rejection_reason?: string | null;
-  /** Notes written by the super admin while reviewing the payment. */
   review_notes?: string | null;
-  /** True when this order already extended the club subscription. */
   applied_to_subscription: boolean;
   applied_at?: Date | null;
   notes?: string | null;
@@ -64,6 +58,8 @@ const orderSchema = new Schema<IOrder, OrderModel>(
       required: true,
       index: true,
     },
+    cycle_name: { type: String, default: null, trim: true, maxlength: 100 },
+    approved_by_name: { type: String, default: null, trim: true, maxlength: 120 },
     price: { type: Number, required: true, min: 0 },
     discount: { type: Number, default: 0, min: 0 },
     fine: { type: Number, default: 0, min: 0 },

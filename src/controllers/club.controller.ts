@@ -141,25 +141,36 @@ export async function getClubSubscription(req: Request, res: Response) {
 export async function createClub(req: Request, res: Response) {
   let startDate = req.body.start_date ? new Date(req.body.start_date) : null;
   let endDate = req.body.end_date ? new Date(req.body.end_date) : null;
+  let selectedCycleId: string | null = null;
 
   if (req.body.package_id) {
     const pkg = await getPackageOrThrow(req.body.package_id);
 
-    // If client did not explicitly send dates, calculate them automatically from package duration
-    if (!startDate && !endDate) {
-      let cycle = req.body.cycle_id
-        ? pkg.cycles.find((c: any) => String(c._id) === String(req.body.cycle_id))
-        : undefined;
+    let cycle = req.body.cycle_id
+      ? pkg.cycles.find((c: any) => String(c._id) === String(req.body.cycle_id))
+      : undefined;
 
-      if (!cycle && pkg.cycles.length > 0) {
-        cycle = pkg.cycles[0];
-      }
+    if (req.body.cycle_id && !cycle) {
+      throw new BadRequest("Cycle does not belong to the selected package");
+    }
 
-      if (cycle) {
+    if (!cycle && pkg.cycles.length > 0) {
+      cycle = pkg.cycles[0];
+    }
+
+    if (cycle) {
+      selectedCycleId = String(cycle._id);
+      if (!startDate && !endDate) {
         startDate = new Date();
         endDate = addMonths(startDate, cycle.months);
       }
     }
+  }
+
+  // فحص مسبق للـ subdomain
+  const existing = await Club.findOne({ subdomain: req.body.subdomain }).lean();
+  if (existing) {
+    throw new ConflictError(`Subdomain "${req.body.subdomain}" is already taken`);
   }
 
   const club = await Club.create({
@@ -167,22 +178,44 @@ export async function createClub(req: Request, res: Response) {
     status: req.body.status ?? true,
     subdomain: req.body.subdomain,
     package_id: req.body.package_id ?? null,
+    cycle_id: selectedCycleId,
     start_date: startDate,
     end_date: endDate,
   });
 
-  // Prepare the club database (indexes + settings + first admin with optional custom password/email)
-  const tenant = await initTenantDatabase(
-    {
-      subdomain: club.subdomain,
-      name: club.name,
-    },
-    {
-      name: req.body.admin_name,
-      email: req.body.admin_email,
-      password: req.body.admin_password,
+  // 👇 الإيميل والباسورد إجباريين (من الـ validator)
+  let tenant: Awaited<ReturnType<typeof initTenantDatabase>>;
+  try {
+    tenant = await initTenantDatabase(
+      {
+        subdomain: club.subdomain,
+        name: club.name,
+      },
+      {
+        name: req.body.admin_name,
+        email: req.body.admin_email,
+        password: req.body.admin_password,
+      }
+    );
+  } catch (error) {
+    // Rollback: delete the club record so the user can retry cleanly
+    await club.deleteOne().catch(() => {});
+
+    // Best-effort tenant DB cleanup (with its own try/catch in case dbName is invalid)
+    try {
+      await dropTenantDatabase(club.subdomain);
+    } catch (dropError) {
+      console.warn(
+        `⚠️ Could not drop tenant DB "${club.subdomain}" during rollback:`,
+        dropError
+      );
     }
-  );
+
+    const message =
+      error instanceof Error ? error.message : "Unknown error while provisioning tenant";
+    console.error(`❌ initTenantDatabase failed for "${club.subdomain}":`, error);
+    throw new BadRequest(`Failed to provision club database: ${message}`);
+  }
 
   const [populated, settings] = await Promise.all([
     club.populate("package_id", "name status teams players"),
@@ -196,13 +229,8 @@ export async function createClub(req: Request, res: Response) {
       tenant: {
         database: tenant.database,
         admin_created: Boolean(tenant.admin),
-        admin_email: tenant.admin?.email ?? defaultTenantAdminEmail(club.subdomain),
-        /**
-         * Plain-text password returned ONCE at club creation.
-         * null when the super admin explicitly sent admin_password in the request
-         * (they already know it) or when an admin already existed.
-         */
-        admin_password: tenant.admin_password,
+        admin_email: tenant.admin?.email ?? req.body.admin_email,
+        // 👇 شيلنا admin_password — الـ super admin كتبه بنفسه
       },
     },
     201,
@@ -214,8 +242,12 @@ export async function updateClub(req: Request, res: Response) {
   const club = await Club.findById(req.params.id);
   if (!club) throw new NotFound("Club not found");
 
+  let pkg: any = null;
   if (req.body.package_id !== undefined && req.body.package_id !== null) {
-    await getPackageOrThrow(req.body.package_id);
+    pkg = await getPackageOrThrow(req.body.package_id);
+  } else if (req.body.cycle_id !== undefined) {
+    // If only cycle_id is sent, we need the current package
+    pkg = await getPackageOrThrow(String(club.package_id));
   }
 
   if (req.body.name !== undefined) club.name = req.body.name;
@@ -227,7 +259,35 @@ export async function updateClub(req: Request, res: Response) {
     );
   }
 
-  if (req.body.package_id !== undefined) club.package_id = req.body.package_id;
+  const packageChanged =
+    req.body.package_id !== undefined &&
+    String(req.body.package_id) !== String(club.package_id);
+
+  if (packageChanged) {
+    club.package_id = req.body.package_id;
+    // Reset cycle when package changes (unless a new one is provided)
+    if (req.body.cycle_id === undefined) club.cycle_id = null;
+  }
+
+  // Handle cycle change
+  if (req.body.cycle_id !== undefined) {
+    if (!pkg) throw new BadRequest("Cannot set cycle_id without a package");
+
+    if (req.body.cycle_id === null) {
+      club.cycle_id = null;
+    } else {
+      const cycle = pkg.cycles.find((c: any) => String(c._id) === String(req.body.cycle_id));
+      if (!cycle) throw new BadRequest("Cycle does not belong to the selected package");
+      club.cycle_id = cycle._id;
+
+      // If dates weren't explicitly sent, recalculate from the new cycle
+      if (req.body.start_date === undefined && req.body.end_date === undefined) {
+        club.start_date = new Date();
+        club.end_date = addMonths(club.start_date, cycle.months);
+      }
+    }
+  }
+
   if (req.body.start_date !== undefined) club.start_date = req.body.start_date;
   if (req.body.end_date !== undefined) club.end_date = req.body.end_date;
 
@@ -238,7 +298,7 @@ export async function updateClub(req: Request, res: Response) {
   await club.save();
 
   const [populated, settings] = await Promise.all([
-    club.populate("package_id", "name status teams players"),
+    club.populate("package_id", "name status teams players cycles"),
     getOrCreateSettings(),
   ]);
 

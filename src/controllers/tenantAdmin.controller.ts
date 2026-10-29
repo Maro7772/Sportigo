@@ -1,17 +1,14 @@
 import type { Request, Response } from "express";
-import { randomBytes } from "node:crypto";
-import type { HydratedDocument } from "mongoose";
 import { Club } from "../models/Club";
-import { NotFound } from "../errors";
+import { BadRequest, NotFound } from "../errors";
 import { SuccessResponse } from "../utils/response";
 import { getTenantConnection, tenantStats } from "../config/tenant";
-import { getTenantModels, type ITenantAdmin } from "../models/tenant";
-import { initTenantDatabase, defaultTenantAdminEmail } from "../services/tenantAuth.service";
-
-/** Readable random password (12 chars) used when the caller does not send one. */
-function generateTenantPassword(): string {
-  return randomBytes(9).toString("base64url");
-}
+import { getTenantModels } from "../models/tenant";
+import {
+  initTenantDatabase,
+  resetTenantAdminPassword,
+  defaultTenantAdminEmail,
+} from "../services/tenantAuth.service";
 
 async function findClub(id: string) {
   const club = await Club.findById(id);
@@ -19,13 +16,8 @@ async function findClub(id: string) {
   return club;
 }
 
-/**
- * `GET /api/clubs/:id/tenant`
- * Shows the tenant database of a club and how many documents each collection has.
- */
 export async function getClubTenant(req: Request, res: Response) {
   const club = await findClub(String(req.params.id));
-
   const stats = await tenantStats(club.subdomain);
 
   return SuccessResponse(res, {
@@ -34,17 +26,25 @@ export async function getClubTenant(req: Request, res: Response) {
   });
 }
 
-/**
- * `POST /api/clubs/:id/tenant/init`
- * Creates the indexes, the default settings document and the first club admin.
- */
 export async function initClubTenant(req: Request, res: Response) {
   const club = await findClub(String(req.params.id));
 
-  const { settings, admin, admin_password } = await initTenantDatabase({
-    subdomain: club.subdomain,
-    name: club.name,
-  });
+  const { admin_name, admin_email, admin_password } = req.body as {
+    admin_name?: string;
+    admin_email?: string;
+    admin_password?: string;
+  };
+
+  if (!admin_name || !admin_email || !admin_password) {
+    throw new BadRequest(
+      "admin_name, admin_email and admin_password are required to initialize a tenant"
+    );
+  }
+
+  const { settings, admin } = await initTenantDatabase(
+    { subdomain: club.subdomain, name: club.name },
+    { name: admin_name, email: admin_email, password: admin_password }
+  );
 
   const stats = await tenantStats(club.subdomain);
 
@@ -60,13 +60,8 @@ export async function initClubTenant(req: Request, res: Response) {
             email: admin.email,
             role: admin.role,
             created: true,
-            password: admin_password,
           }
-        : {
-            email: defaultTenantAdminEmail(club.subdomain),
-            created: false,
-            password: null,
-          },
+        : { email: admin_email, created: false },
       ...stats,
     },
     200,
@@ -74,17 +69,6 @@ export async function initClubTenant(req: Request, res: Response) {
   );
 }
 
-/**
- * `POST /api/clubs/:id/tenant/reset-admin`
- *
- * Super admin recovery for a club that lost its password:
- * - targets `admin_id`, `email`, or by default `admin@<subdomain>.com`
- * - if the club has no account at all, the default admin is created
- * - without `password` a random one is generated and returned **once**
- * - `activate: true` re-enables a locked account in the same call
- *
- * The reset also revokes every token issued before it (password_changed_at).
- */
 export async function resetClubTenantAdmin(req: Request, res: Response) {
   const club = await findClub(String(req.params.id));
 
@@ -98,24 +82,12 @@ export async function resetClubTenantAdmin(req: Request, res: Response) {
     activate?: boolean;
   };
 
-  let admin: HydratedDocument<ITenantAdmin> | null = null;
-
-  if (admin_id) {
-    admin = await models.Admin.findById(admin_id);
-    if (!admin) throw new NotFound("Tenant admin not found");
-  } else if (email) {
-    admin = await models.Admin.findOne({ email });
-    if (!admin) throw new NotFound(`No tenant admin with email "${email}"`);
-  } else {
-    // Default target: the provisioned admin, then the oldest active admin.
-    admin =
-      (await models.Admin.findOne({ email: defaultTenantAdminEmail(club.subdomain) })) ??
-      (await models.Admin.findOne({ role: "admin", status: true }).sort({ createdAt: 1 })) ??
-      (await models.Admin.findOne().sort({ createdAt: 1 }));
-  }
-
-  const generated = !password;
-  const newPassword = password ?? generateTenantPassword();
+  const result = await resetTenantAdminPassword(models, club.subdomain, {
+    admin_id,
+    email,
+    password,
+    activate,
+  });
 
   const clubSummary = {
     id: club._id,
@@ -124,55 +96,26 @@ export async function resetClubTenantAdmin(req: Request, res: Response) {
     database: connection.name,
   };
 
-  if (!admin) {
-    const created = await models.Admin.create({
-      name: `${club.name} Admin`,
-      email: defaultTenantAdminEmail(club.subdomain),
-      password: newPassword,
-      role: "admin",
-      status: true,
-    });
-
-    return SuccessResponse(
-      res,
-      {
-        club: clubSummary,
-        admin: {
-          id: created._id,
-          name: created.name,
-          email: created.email,
-          role: created.role,
-          status: created.status,
-        },
-        password: newPassword,
-        generated,
-        created: true,
-      },
-      201,
-      "Tenant admin created with a new password"
-    );
-  }
-
-  admin.password = newPassword;
-  if (activate === true) admin.status = true;
-  await admin.save();
-
   return SuccessResponse(
     res,
     {
       club: clubSummary,
-      admin: {
-        id: admin._id,
-        name: admin.name,
-        email: admin.email,
-        role: admin.role,
-        status: admin.status,
-      },
-      password: newPassword,
-      generated,
-      created: false,
+      admin: result.admin
+        ? {
+            id: result.admin._id,
+            name: result.admin.name,
+            email: result.admin.email,
+            role: result.admin.role,
+            status: result.admin.status,
+          }
+        : { email: defaultTenantAdminEmail(club.subdomain), created: false },
+      password: result.password,
+      generated: result.generated,
+      created: result.created,
     },
-    200,
-    "Tenant admin password reset successfully"
+    result.created ? 201 : 200,
+    result.created
+      ? "Tenant admin created with a new password"
+      : "Tenant admin password reset successfully"
   );
 }

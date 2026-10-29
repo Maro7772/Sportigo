@@ -4,14 +4,25 @@ import { Order, type IOrder } from "../models/Order";
 import { Package, type IPackageCycle } from "../models/Package";
 import { Club } from "../models/Club";
 import { PaymentMethod } from "../models/PaymentMethod";
+import { SuperAdmin } from "../models/SuperAdmin";
 import { getOrCreateSettings } from "../models/Settings";
 import { BadRequest, ConflictError, NotFound } from "../errors";
 import { SuccessResponse } from "../utils/response";
 import { buildListQuery } from "../utils/listQuery";
 import { buildPaginationMeta } from "../utils/pagination";
 import { calculateDiscountAmount } from "../utils/pricing";
-import { applyPaidOrder, evaluateSubscription } from "../services/subscription.service";
+import {
+  applyPaidOrder,
+  evaluateSubscription,
+} from "../services/subscription.service";
 import { buildInvoiceData, renderInvoiceHtml } from "../services/invoice.service";
+import { serializeOrder } from "../utils/orderSerializer";
+import {
+  getUploadedImage,
+  publicUploadUrl,
+  removeUploadedFile,
+  uploadPathFromUrl,
+} from "../config/upload";
 
 const SORT_FIELDS = [
   "order_number",
@@ -25,11 +36,21 @@ const SORT_FIELDS = [
   "updatedAt",
 ];
 
+/**
+ * Only the fields we actually display.
+ * club/package/payment_method → `{ name }` only.
+ * approved_by → `{ name }` only (used only when NOT relying on the snapshot).
+ */
 const ORDER_POPULATE = [
-  { path: "club_id", select: "name subdomain status package_id start_date end_date" },
-  { path: "package_id", select: "name game_id teams players" },
-  { path: "payment_method_id", select: "name status" },
+  { path: "club_id", select: "name" },
+  { path: "package_id", select: "name" },
+  { path: "payment_method_id", select: "name" },
+  { path: "approved_by", select: "name" },
 ];
+
+/* -------------------------------------------------------------------------- */
+/*                                  Helpers                                   */
+/* -------------------------------------------------------------------------- */
 
 async function getClubOrThrow(clubId: string) {
   const club = await Club.findById(clubId);
@@ -50,11 +71,19 @@ function findCycle(
   return pkg.cycles.find((cycle) => String(cycle._id) === cycleId);
 }
 
-async function fetchPopulatedOrder(orderId: string) {
-  const order = await Order.findById(orderId).populate(ORDER_POPULATE);
+/**
+ * Loads the populated order and returns it serialized through `serializeOrder`.
+ * Throws 404 if it doesn't exist.
+ */
+async function fetchSerializedOrder(req: Request, orderId: string) {
+  const order = await Order.findById(orderId).populate(ORDER_POPULATE).lean();
   if (!order) throw new NotFound("Order not found");
-  return order;
+  return serializeOrder(req, order);
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                    List                                    */
+/* -------------------------------------------------------------------------- */
 
 export async function listOrders(req: Request, res: Response) {
   const { filter, page, limit, skip, sort } = buildListQuery(req, {
@@ -86,17 +115,23 @@ export async function listOrders(req: Request, res: Response) {
   ]);
 
   return SuccessResponse(res, {
-    items,
+    items: items.map((order) => serializeOrder(req, order)),
     pagination: buildPaginationMeta(total, page, limit),
   });
 }
 
-export async function getOrder(req: Request, res: Response) {
-  const order = await Order.findById(req.params.id).populate(ORDER_POPULATE).lean();
-  if (!order) throw new NotFound("Order not found");
+/* -------------------------------------------------------------------------- */
+/*                                    Get                                     */
+/* -------------------------------------------------------------------------- */
 
+export async function getOrder(req: Request, res: Response) {
+  const order = await fetchSerializedOrder(req, String(req.params.id));
   return SuccessResponse(res, { order });
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                   Create                                   */
+/* -------------------------------------------------------------------------- */
 
 export async function createOrder(req: Request, res: Response) {
   const { club_id, package_id, cycle_id, payment_method_id } = req.body;
@@ -123,46 +158,56 @@ export async function createOrder(req: Request, res: Response) {
 
   const discount =
     req.body.discount ??
-    (cycle ? calculateDiscountAmount(price, cycle.discount, cycle.discount_type) : 0);
+    (cycle
+      ? calculateDiscountAmount(price, cycle.discount, cycle.discount_type)
+      : 0);
 
   if (discount > price) throw new BadRequest("discount cannot be greater than price");
 
-  // Late renewal: apply the default fine from settings unless the client sent one.
   const subscription = evaluateSubscription(club, settings.allowed_days);
   const fine =
     req.body.fine ?? (subscription.is_late_renewal ? settings.fines : 0);
 
-  const order = await Order.create({
-    club_id,
-    package_id,
-    cycle_id: cycle_id ?? cycle?._id ?? null,
-    payment_method_id,
-    price,
-    discount,
-    fine,
-    status: req.body.status ?? "pending",
-    payment_proof: req.body.payment_proof ?? null,
-    payment_reference: req.body.payment_reference ?? null,
-    paid_at: req.body.paid_at ?? null,
-    notes: req.body.notes ?? null,
-  });
+  // 👇 payment_proof: file upload (multipart) takes precedence over a URL
+  const file = getUploadedImage(req);
+  const uploadedProofUrl = file ? publicUploadUrl(file.filename) : null;
+  const finalProof = req.body.payment_proof ?? uploadedProofUrl ?? null;
+
+  let order: any;
+  try {
+    order = await Order.create({
+      club_id,
+      package_id,
+      cycle_id: cycle_id ?? cycle?._id ?? null,
+      cycle_name: cycle?.name ?? null, // 👈 snapshot
+      payment_method_id,
+      price,
+      discount,
+      fine,
+      status: req.body.status ?? "pending",
+      payment_proof: finalProof,
+      payment_reference: req.body.payment_reference ?? null,
+      paid_at: req.body.paid_at ?? null,
+      notes: req.body.notes ?? null,
+    });
+  } catch (error) {
+    // Rollback the uploaded file if the DB write fails
+    if (file) removeUploadedFile(file.path);
+    throw error;
+  }
 
   if (order.status === "paid") {
     await applyPaidOrder(String(order._id));
   }
 
-  const fresh = await fetchPopulatedOrder(String(order._id));
+  const serialized = await fetchSerializedOrder(req, String(order._id));
 
-  return SuccessResponse(
-    res,
-    {
-      order: fresh,
-      subscription_applied: Boolean(fresh.applied_to_subscription),
-    },
-    201,
-    "Order created successfully"
-  );
+  return SuccessResponse(res, { order: serialized }, 201, "Order created successfully");
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                   Update                                   */
+/* -------------------------------------------------------------------------- */
 
 export async function updateOrder(req: Request, res: Response) {
   const order = await Order.findById(req.params.id);
@@ -218,6 +263,7 @@ export async function updateOrder(req: Request, res: Response) {
 
   if (packageChanged || cycleProvided) {
     order.cycle_id = nextCycleId ? new Types.ObjectId(nextCycleId) : null;
+    order.cycle_name = cycle?.name ?? null; // 👈 keep snapshot in sync
   }
 
   if (req.body.price !== undefined) order.price = req.body.price;
@@ -227,7 +273,9 @@ export async function updateOrder(req: Request, res: Response) {
       if (cycle) {
         order.price = cycle.price;
       } else if (packageChanged) {
-        throw new BadRequest("price is required when changing to a package without a cycle");
+        throw new BadRequest(
+          "price is required when changing to a package without a cycle"
+        );
       }
     }
   }
@@ -245,36 +293,63 @@ export async function updateOrder(req: Request, res: Response) {
   }
 
   if (req.body.fine !== undefined) order.fine = req.body.fine;
-  if (req.body.payment_proof !== undefined) order.payment_proof = req.body.payment_proof;
-  if (req.body.payment_reference !== undefined) {
-    order.payment_reference = req.body.payment_reference;
-  }
-  if (req.body.status !== undefined) order.status = req.body.status;
-  if (req.body.paid_at !== undefined) order.paid_at = req.body.paid_at;
-  if (req.body.notes !== undefined) order.notes = req.body.notes;
 
-  if (order.discount > order.price) {
-    throw new BadRequest("discount cannot be greater than price");
-  }
+  // 👇 payment_proof: file upload (multipart) OR explicit URL
+  const file = getUploadedImage(req);
+  if (file || req.body.payment_proof !== undefined) {
+    const newProof = req.body.payment_proof ?? publicUploadUrl(file!.filename);
+    const previousProof = order.payment_proof;
+    order.payment_proof = newProof;
 
-  await order.save();
+    try {
+      if (req.body.status !== undefined) order.status = req.body.status;
+      if (req.body.paid_at !== undefined) order.paid_at = req.body.paid_at;
+      if (req.body.notes !== undefined) order.notes = req.body.notes;
+      if (req.body.payment_reference !== undefined) {
+        order.payment_reference = req.body.payment_reference;
+      }
+
+      if (order.discount > order.price) {
+        throw new BadRequest("discount cannot be greater than price");
+      }
+
+      await order.save();
+
+      // Cleanup the previous proof AFTER the new one is persisted
+      if (previousProof && previousProof !== newProof) {
+        removeUploadedFile(uploadPathFromUrl(previousProof));
+      }
+    } catch (error) {
+      if (file) removeUploadedFile(file.path);
+      throw error;
+    }
+  } else {
+    if (req.body.status !== undefined) order.status = req.body.status;
+    if (req.body.paid_at !== undefined) order.paid_at = req.body.paid_at;
+    if (req.body.notes !== undefined) order.notes = req.body.notes;
+    if (req.body.payment_reference !== undefined) {
+      order.payment_reference = req.body.payment_reference;
+    }
+
+    if (order.discount > order.price) {
+      throw new BadRequest("discount cannot be greater than price");
+    }
+
+    await order.save();
+  }
 
   if (order.status === "paid") {
     await applyPaidOrder(String(order._id));
   }
 
-  const fresh = await fetchPopulatedOrder(String(order._id));
+  const serialized = await fetchSerializedOrder(req, String(order._id));
 
-  return SuccessResponse(
-    res,
-    {
-      order: fresh,
-      subscription_applied: Boolean(fresh.applied_to_subscription),
-    },
-    200,
-    "Order updated successfully"
-  );
+  return SuccessResponse(res, { order: serialized }, 200, "Order updated successfully");
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                Update Status                               */
+/* -------------------------------------------------------------------------- */
 
 export async function updateOrderStatus(req: Request, res: Response) {
   const order = await Order.findById(req.params.id);
@@ -302,24 +377,20 @@ export async function updateOrderStatus(req: Request, res: Response) {
     await applyPaidOrder(String(order._id));
   }
 
-  const fresh = await fetchPopulatedOrder(String(order._id));
+  const serialized = await fetchSerializedOrder(req, String(order._id));
 
   return SuccessResponse(
     res,
-    {
-      order: fresh,
-      subscription_applied: Boolean(fresh.applied_to_subscription),
-    },
+    { order: serialized },
     200,
     "Order status updated successfully"
   );
 }
 
-/**
- * Super admin approval of a pending order.
- * This is the intended flow: the club uploads a payment proof, the order stays
- * `pending`, then the super admin approves it → `paid` + subscription renewed.
- */
+/* -------------------------------------------------------------------------- */
+/*                                  Approve                                   */
+/* -------------------------------------------------------------------------- */
+
 export async function approveOrder(req: Request, res: Response) {
   const order = await Order.findById(req.params.id);
   if (!order) throw new NotFound("Order not found");
@@ -341,6 +412,12 @@ export async function approveOrder(req: Request, res: Response) {
   order.approved_at = now;
   order.approved_by = req.user?.sub ? new Types.ObjectId(req.user.sub) : null;
 
+  // 👇 snapshot اسم الـ super admin
+  if (req.user?.sub) {
+    const admin = await SuperAdmin.findById(req.user.sub).select("name").lean();
+    order.approved_by_name = admin?.name ?? null;
+  }
+
   if (req.body?.notes !== undefined) {
     order.review_notes = req.body.notes;
   }
@@ -348,23 +425,15 @@ export async function approveOrder(req: Request, res: Response) {
   await order.save();
   await applyPaidOrder(String(order._id));
 
-  const fresh = await fetchPopulatedOrder(String(order._id));
+  const serialized = await fetchSerializedOrder(req, String(order._id));
 
-  return SuccessResponse(
-    res,
-    {
-      order: fresh,
-      subscription_applied: Boolean(fresh.applied_to_subscription),
-    },
-    200,
-    "Order approved successfully"
-  );
+  return SuccessResponse(res, { order: serialized }, 200, "Order approved successfully");
 }
 
-/**
- * Super admin rejection of a pending order (e.g. the payment proof is invalid).
- * Rejected orders never touch the club subscription.
- */
+/* -------------------------------------------------------------------------- */
+/*                                   Reject                                   */
+/* -------------------------------------------------------------------------- */
+
 export async function rejectOrder(req: Request, res: Response) {
   const order = await Order.findById(req.params.id);
   if (!order) throw new NotFound("Order not found");
@@ -391,10 +460,14 @@ export async function rejectOrder(req: Request, res: Response) {
 
   await order.save();
 
-  const fresh = await fetchPopulatedOrder(String(order._id));
+  const serialized = await fetchSerializedOrder(req, String(order._id));
 
-  return SuccessResponse(res, { order: fresh }, 200, "Order rejected successfully");
+  return SuccessResponse(res, { order: serialized }, 200, "Order rejected successfully");
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                   Delete                                   */
+/* -------------------------------------------------------------------------- */
 
 export async function deleteOrder(req: Request, res: Response) {
   const order = await Order.findById(req.params.id);
@@ -406,10 +479,17 @@ export async function deleteOrder(req: Request, res: Response) {
     );
   }
 
+  // Cleanup the payment proof file from disk
+  removeUploadedFile(uploadPathFromUrl(order.payment_proof));
+
   await order.deleteOne();
 
   return SuccessResponse(res, { id: req.params.id }, 200, "Order deleted successfully");
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                Bulk Delete                                 */
+/* -------------------------------------------------------------------------- */
 
 export async function bulkDeleteOrders(req: Request, res: Response) {
   const ids: string[] = req.body.ids;
@@ -425,7 +505,16 @@ export async function bulkDeleteOrders(req: Request, res: Response) {
     );
   }
 
+  // Grab proofs before deletion
+  const orders = await Order.find({ _id: { $in: ids } })
+    .select("payment_proof")
+    .lean();
+
   const result = await Order.deleteMany({ _id: { $in: ids } });
+
+  for (const o of orders) {
+    removeUploadedFile(uploadPathFromUrl(o.payment_proof));
+  }
 
   return SuccessResponse(
     res,
@@ -434,6 +523,10 @@ export async function bulkDeleteOrders(req: Request, res: Response) {
     `${result.deletedCount} order(s) deleted successfully`
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/*                                  Invoice                                   */
+/* -------------------------------------------------------------------------- */
 
 export async function getOrderInvoice(req: Request, res: Response) {
   const invoice = await buildInvoiceData(String(req.params.id));
@@ -453,4 +546,3 @@ export async function getOrderInvoiceHtml(req: Request, res: Response) {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   return res.status(200).send(html);
 }
-

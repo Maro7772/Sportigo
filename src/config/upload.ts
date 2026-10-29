@@ -32,8 +32,10 @@ const storage = multer.diskStorage({
 
 /**
  * Multer middleware for a single image.
- * Accepts the file under either `image` or `file` so clients can use whatever
- * field name they already have in their form.
+ *
+ * Accepted field names: `image`, `file`, `icon`.
+ * - `image` / `file` are the generic uploads (`/api/uploads`, `/api/orders/:id/payment-proof`).
+ * - `icon` is used by `/api/payment-methods` (icon image of the payment method).
  */
 export const imageUpload = multer({
   storage,
@@ -49,9 +51,13 @@ export const imageUpload = multer({
 }).fields([
   { name: "image", maxCount: 1 },
   { name: "file", maxCount: 1 },
+  { name: "icon", maxCount: 1 }, // ⬅️ جديد
 ]);
 
-/** Returns the first uploaded file from either accepted field name. */
+/**
+ * Returns the first uploaded file from any accepted field name.
+ * Order matters: `image` → `file` → `icon` → `req.file` (single).
+ */
 export function getUploadedImage(req: {
   files?: unknown;
   file?: Express.Multer.File;
@@ -60,7 +66,12 @@ export function getUploadedImage(req: {
     | Record<string, Express.Multer.File[]>
     | undefined;
 
-  return files?.image?.[0] ?? files?.file?.[0] ?? req.file;
+  return (
+    files?.image?.[0] ??
+    files?.file?.[0] ??
+    files?.icon?.[0] ??
+    req.file
+  );
 }
 
 /** Public URL used to serve an uploaded file. */
