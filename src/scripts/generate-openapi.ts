@@ -1777,11 +1777,11 @@ export function buildOpenApiSpec() {
         description: "Local Development Server (Use 'x-subdomain' header for tenant routes)",
       },
       {
-        url: "https://api.scouting.example.com",
-        description: "Super Admin Production Server",
+        url: "https://sportego.org",
+        description: "Production Server (sportego.org)",
       },
       {
-        url: "https://{subdomain}.scouting.example.com",
+        url: "https://{subdomain}.sportego.org",
         description: "Tenant Club Production Host (Wildcard subdomain)",
         variables: {
           subdomain: {
