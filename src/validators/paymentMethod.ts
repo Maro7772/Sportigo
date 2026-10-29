@@ -61,7 +61,7 @@ export const createPaymentMethodSchema = z.object({
         z.string().trim().max(1000).nullable(),
       )
       .optional(),
-    icon: iconFieldRequired, // 👈 إجباري
+    icon: iconFieldOptional, // 👈 إجباري
   }),
 });
 
