@@ -15,7 +15,10 @@ import {
   applyPaidOrder,
   evaluateSubscription,
 } from "../services/subscription.service";
-import { buildInvoiceData, renderInvoiceHtml } from "../services/invoice.service";
+import {
+  buildInvoiceData,
+  renderInvoiceHtml,
+} from "../services/invoice.service";
 import { serializeOrder } from "../utils/orderSerializer";
 import {
   getUploadedImage,
@@ -36,11 +39,6 @@ const SORT_FIELDS = [
   "updatedAt",
 ];
 
-/**
- * Only the fields we actually display.
- * club/package/payment_method → `{ name }` only.
- * approved_by → `{ name }` only (used only when NOT relying on the snapshot).
- */
 const ORDER_POPULATE = [
   { path: "club_id", select: "name" },
   { path: "package_id", select: "name" },
@@ -58,23 +56,21 @@ async function getClubOrThrow(clubId: string) {
   return club;
 }
 
-async function assertPaymentMethodExists(paymentMethodId: string): Promise<void> {
+async function assertPaymentMethodExists(
+  paymentMethodId: string,
+): Promise<void> {
   const exists = await PaymentMethod.exists({ _id: paymentMethodId });
   if (!exists) throw new NotFound("Payment method not found");
 }
 
 function findCycle(
   pkg: { cycles: IPackageCycle[] },
-  cycleId: string | null
+  cycleId: string | null,
 ): IPackageCycle | undefined {
   if (!cycleId) return undefined;
   return pkg.cycles.find((cycle) => String(cycle._id) === cycleId);
 }
 
-/**
- * Loads the populated order and returns it serialized through `serializeOrder`.
- * Throws 404 if it doesn't exist.
- */
 async function fetchSerializedOrder(req: Request, orderId: string) {
   const order = await Order.findById(orderId).populate(ORDER_POPULATE).lean();
   if (!order) throw new NotFound("Order not found");
@@ -87,7 +83,7 @@ async function fetchSerializedOrder(req: Request, orderId: string) {
 
 export async function listOrders(req: Request, res: Response) {
   const { filter, page, limit, skip, sort } = buildListQuery(req, {
-    searchFields: ["order_number", "payment_reference", "notes"],
+    searchFields: ["order_number", "notes"],
     sortFields: SORT_FIELDS,
     defaultSort: "createdAt",
     defaultOrder: -1,
@@ -162,16 +158,33 @@ export async function createOrder(req: Request, res: Response) {
       ? calculateDiscountAmount(price, cycle.discount, cycle.discount_type)
       : 0);
 
-  if (discount > price) throw new BadRequest("discount cannot be greater than price");
+  if (discount > price)
+    throw new BadRequest("discount cannot be greater than price");
 
   const subscription = evaluateSubscription(club, settings.allowed_days);
   const fine =
     req.body.fine ?? (subscription.is_late_renewal ? settings.fines : 0);
 
-  // 👇 payment_proof: file upload (multipart) takes precedence over a URL
+  // 👇 payment_proof: إجباري (ملف أو URL)
   const file = getUploadedImage(req);
+  if (!file && !req.body.payment_proof) {
+    throw new BadRequest("Payment proof file is required");
+  }
+
   const uploadedProofUrl = file ? publicUploadUrl(file.filename) : null;
   const finalProof = req.body.payment_proof ?? uploadedProofUrl ?? null;
+
+  // 👇 بنجبر الـ status يبقى paid، وبنحط التاريخ
+  const status = "paid";
+  const paidAt = req.body.paid_at ?? new Date();
+  const now = new Date();
+
+  // 👇 بنجيب اسم الأدمن اللي عمل الأوردر عشان نحطه في approved_by_name
+  let approvedByName = null;
+  if (req.user?.sub) {
+    const admin = await SuperAdmin.findById(req.user.sub).select("name").lean();
+    approvedByName = admin?.name ?? null;
+  }
 
   let order: any;
   try {
@@ -179,30 +192,36 @@ export async function createOrder(req: Request, res: Response) {
       club_id,
       package_id,
       cycle_id: cycle_id ?? cycle?._id ?? null,
-      cycle_name: cycle?.name ?? null, // 👈 snapshot
+      cycle_name: cycle?.name ?? null, // 👈 هنا هياخد اسم السايكل
       payment_method_id,
       price,
       discount,
       fine,
-      status: req.body.status ?? "pending",
+      status: status,
       payment_proof: finalProof,
-      payment_reference: req.body.payment_reference ?? null,
-      paid_at: req.body.paid_at ?? null,
+      paid_at: paidAt,
       notes: req.body.notes ?? null,
+      // 👇 تسجيل الأدمن
+      approved_by: req.user?.sub ? new Types.ObjectId(req.user.sub) : null,
+      approved_by_name: approvedByName,
+      approved_at: now,
     });
   } catch (error) {
-    // Rollback the uploaded file if the DB write fails
     if (file) removeUploadedFile(file.path);
     throw error;
   }
 
-  if (order.status === "paid") {
-    await applyPaidOrder(String(order._id));
-  }
+  // 👇 تمديد الاشتراك للنادي (زي ما بيحصل في الـ approve)
+  await applyPaidOrder(String(order._id));
 
   const serialized = await fetchSerializedOrder(req, String(order._id));
 
-  return SuccessResponse(res, { order: serialized }, 201, "Order created successfully");
+  return SuccessResponse(
+    res,
+    { order: serialized },
+    201,
+    "Order created successfully",
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -219,7 +238,7 @@ export async function updateOrder(req: Request, res: Response) {
     req.body.status !== "paid"
   ) {
     throw new ConflictError(
-      "This order was already applied to the club subscription and cannot be moved out of paid status"
+      "This order was already applied to the club subscription and cannot be moved out of paid status",
     );
   }
 
@@ -247,7 +266,9 @@ export async function updateOrder(req: Request, res: Response) {
   if (packageChanged) order.package_id = pkg!._id;
 
   const cycleProvided = req.body.cycle_id !== undefined;
-  let nextCycleId: string | null = order.cycle_id ? String(order.cycle_id) : null;
+  let nextCycleId: string | null = order.cycle_id
+    ? String(order.cycle_id)
+    : null;
 
   if (packageChanged) {
     nextCycleId = cycleProvided ? req.body.cycle_id : null;
@@ -258,12 +279,13 @@ export async function updateOrder(req: Request, res: Response) {
   let cycle: IPackageCycle | undefined;
   if (nextCycleId && pkg) {
     cycle = findCycle(pkg, nextCycleId);
-    if (!cycle) throw new BadRequest("Cycle does not belong to the selected package");
+    if (!cycle)
+      throw new BadRequest("Cycle does not belong to the selected package");
   }
 
   if (packageChanged || cycleProvided) {
     order.cycle_id = nextCycleId ? new Types.ObjectId(nextCycleId) : null;
-    order.cycle_name = cycle?.name ?? null; // 👈 keep snapshot in sync
+    order.cycle_name = cycle?.name ?? null;
   }
 
   if (req.body.price !== undefined) order.price = req.body.price;
@@ -274,7 +296,7 @@ export async function updateOrder(req: Request, res: Response) {
         order.price = cycle.price;
       } else if (packageChanged) {
         throw new BadRequest(
-          "price is required when changing to a package without a cycle"
+          "price is required when changing to a package without a cycle",
         );
       }
     }
@@ -286,7 +308,7 @@ export async function updateOrder(req: Request, res: Response) {
     order.discount = calculateDiscountAmount(
       order.price,
       cycle.discount,
-      cycle.discount_type
+      cycle.discount_type,
     );
   } else if (packageChanged) {
     order.discount = 0;
@@ -294,7 +316,6 @@ export async function updateOrder(req: Request, res: Response) {
 
   if (req.body.fine !== undefined) order.fine = req.body.fine;
 
-  // 👇 payment_proof: file upload (multipart) OR explicit URL
   const file = getUploadedImage(req);
   if (file || req.body.payment_proof !== undefined) {
     const newProof = req.body.payment_proof ?? publicUploadUrl(file!.filename);
@@ -305,9 +326,6 @@ export async function updateOrder(req: Request, res: Response) {
       if (req.body.status !== undefined) order.status = req.body.status;
       if (req.body.paid_at !== undefined) order.paid_at = req.body.paid_at;
       if (req.body.notes !== undefined) order.notes = req.body.notes;
-      if (req.body.payment_reference !== undefined) {
-        order.payment_reference = req.body.payment_reference;
-      }
 
       if (order.discount > order.price) {
         throw new BadRequest("discount cannot be greater than price");
@@ -315,7 +333,6 @@ export async function updateOrder(req: Request, res: Response) {
 
       await order.save();
 
-      // Cleanup the previous proof AFTER the new one is persisted
       if (previousProof && previousProof !== newProof) {
         removeUploadedFile(uploadPathFromUrl(previousProof));
       }
@@ -327,9 +344,6 @@ export async function updateOrder(req: Request, res: Response) {
     if (req.body.status !== undefined) order.status = req.body.status;
     if (req.body.paid_at !== undefined) order.paid_at = req.body.paid_at;
     if (req.body.notes !== undefined) order.notes = req.body.notes;
-    if (req.body.payment_reference !== undefined) {
-      order.payment_reference = req.body.payment_reference;
-    }
 
     if (order.discount > order.price) {
       throw new BadRequest("discount cannot be greater than price");
@@ -344,7 +358,12 @@ export async function updateOrder(req: Request, res: Response) {
 
   const serialized = await fetchSerializedOrder(req, String(order._id));
 
-  return SuccessResponse(res, { order: serialized }, 200, "Order updated successfully");
+  return SuccessResponse(
+    res,
+    { order: serialized },
+    200,
+    "Order updated successfully",
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -357,7 +376,7 @@ export async function updateOrderStatus(req: Request, res: Response) {
 
   if (order.applied_to_subscription && req.body.status !== "paid") {
     throw new ConflictError(
-      "This order was already applied to the club subscription and cannot be moved out of paid status"
+      "This order was already applied to the club subscription and cannot be moved out of paid status",
     );
   }
 
@@ -366,7 +385,7 @@ export async function updateOrderStatus(req: Request, res: Response) {
     (req.body.status === "pending" || req.body.status === "rejected")
   ) {
     throw new ConflictError(
-      `A paid order cannot be moved back to "${req.body.status}". Use refund/cancel instead.`
+      `A paid order cannot be moved back to "${req.body.status}". Use refund/cancel instead.`,
     );
   }
 
@@ -383,7 +402,7 @@ export async function updateOrderStatus(req: Request, res: Response) {
     res,
     { order: serialized },
     200,
-    "Order status updated successfully"
+    "Order status updated successfully",
   );
 }
 
@@ -401,7 +420,7 @@ export async function approveOrder(req: Request, res: Response) {
 
   if (order.status !== "pending") {
     throw new ConflictError(
-      `Only pending orders can be approved (current status: ${order.status})`
+      `Only pending orders can be approved (current status: ${order.status})`,
     );
   }
 
@@ -412,7 +431,6 @@ export async function approveOrder(req: Request, res: Response) {
   order.approved_at = now;
   order.approved_by = req.user?.sub ? new Types.ObjectId(req.user.sub) : null;
 
-  // 👇 snapshot اسم الـ super admin
   if (req.user?.sub) {
     const admin = await SuperAdmin.findById(req.user.sub).select("name").lean();
     order.approved_by_name = admin?.name ?? null;
@@ -427,7 +445,12 @@ export async function approveOrder(req: Request, res: Response) {
 
   const serialized = await fetchSerializedOrder(req, String(order._id));
 
-  return SuccessResponse(res, { order: serialized }, 200, "Order approved successfully");
+  return SuccessResponse(
+    res,
+    { order: serialized },
+    200,
+    "Order approved successfully",
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -440,13 +463,13 @@ export async function rejectOrder(req: Request, res: Response) {
 
   if (order.applied_to_subscription) {
     throw new ConflictError(
-      "This order was already applied to the club subscription and cannot be rejected"
+      "This order was already applied to the club subscription and cannot be rejected",
     );
   }
 
   if (order.status !== "pending") {
     throw new ConflictError(
-      `Only pending orders can be rejected (current status: ${order.status})`
+      `Only pending orders can be rejected (current status: ${order.status})`,
     );
   }
 
@@ -462,7 +485,12 @@ export async function rejectOrder(req: Request, res: Response) {
 
   const serialized = await fetchSerializedOrder(req, String(order._id));
 
-  return SuccessResponse(res, { order: serialized }, 200, "Order rejected successfully");
+  return SuccessResponse(
+    res,
+    { order: serialized },
+    200,
+    "Order rejected successfully",
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -475,16 +503,20 @@ export async function deleteOrder(req: Request, res: Response) {
 
   if (order.applied_to_subscription) {
     throw new ConflictError(
-      "Cannot delete an order that was already applied to the club subscription"
+      "Cannot delete an order that was already applied to the club subscription",
     );
   }
 
-  // Cleanup the payment proof file from disk
   removeUploadedFile(uploadPathFromUrl(order.payment_proof));
 
   await order.deleteOne();
 
-  return SuccessResponse(res, { id: req.params.id }, 200, "Order deleted successfully");
+  return SuccessResponse(
+    res,
+    { id: req.params.id },
+    200,
+    "Order deleted successfully",
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -501,11 +533,10 @@ export async function bulkDeleteOrders(req: Request, res: Response) {
 
   if (appliedCount > 0) {
     throw new ConflictError(
-      `Cannot delete: ${appliedCount} order(s) were already applied to club subscriptions`
+      `Cannot delete: ${appliedCount} order(s) were already applied to club subscriptions`,
     );
   }
 
-  // Grab proofs before deletion
   const orders = await Order.find({ _id: { $in: ids } })
     .select("payment_proof")
     .lean();
@@ -520,7 +551,7 @@ export async function bulkDeleteOrders(req: Request, res: Response) {
     res,
     { deletedCount: result.deletedCount },
     200,
-    `${result.deletedCount} order(s) deleted successfully`
+    `${result.deletedCount} order(s) deleted successfully`,
   );
 }
 

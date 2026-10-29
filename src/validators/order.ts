@@ -9,47 +9,27 @@ const orderStatusSchema = z.enum([
   "refunded",
 ]);
 
-/**
- * multipart/form-data sends everything as strings.
- * We coerce numbers / dates gracefully so the same schema works for
- * application/json and multipart/form-data.
- */
-const coerceNumber = z.preprocess(
-  (val) => {
-    if (val === undefined || val === null || val === "") return undefined;
-    const n = Number(val);
-    return Number.isFinite(n) ? n : val;
-  },
-  z.number().min(0).optional()
-);
-
-const paymentReferenceSchema = z
-  .preprocess(
-    (val) => (val === "" ? null : val),
-    z.string().trim().max(200).nullable()
-  )
-  .optional();
+const coerceNumber = z.preprocess((val) => {
+  if (val === undefined || val === null || val === "") return undefined;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : val;
+}, z.number().min(0).optional());
 
 const notesSchema = z
   .preprocess(
     (val) => (val === "" ? null : val),
-    z.string().trim().max(1000).nullable()
+    z.string().trim().max(1000).nullable(),
   )
   .optional();
 
 const paidAtSchema = z
-  .preprocess(
-    (val) => (val === "" ? null : val),
-    z.coerce.date().nullable()
-  )
+  .preprocess((val) => (val === "" ? null : val), z.coerce.date().nullable())
   .optional();
 
-// Payment proof is a FILE via multipart (`req.files.image`), but we also allow
-// a string URL in the body as a fallback.
 const paymentProofUrlSchema = z
   .preprocess(
     (val) => (val === "" ? null : val),
-    z.string().trim().max(2000).nullable()
+    z.string().trim().max(2000).nullable(),
   )
   .optional();
 
@@ -62,9 +42,8 @@ export const createOrderSchema = z.object({
     price: coerceNumber,
     discount: coerceNumber,
     fine: coerceNumber,
-    status: orderStatusSchema.optional(),
-    payment_proof: paymentProofUrlSchema, // optional — usually a file
-    payment_reference: paymentReferenceSchema,
+    // 👇 شيلنا status و payment_reference
+    payment_proof: paymentProofUrlSchema,
     paid_at: paidAtSchema,
     notes: notesSchema,
   }),
@@ -83,7 +62,6 @@ export const updateOrderSchema = z.object({
       fine: coerceNumber,
       status: orderStatusSchema.optional(),
       payment_proof: paymentProofUrlSchema,
-      payment_reference: paymentReferenceSchema,
       paid_at: paidAtSchema,
       notes: notesSchema,
     })
