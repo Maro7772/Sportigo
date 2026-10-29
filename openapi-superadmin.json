@@ -1500,7 +1500,12 @@
             "multipart/form-data": {
               "schema": {
                 "type": "object",
-                "required": ["club_id", "package_id", "payment_method_id"],
+                "required": [
+                  "club_id",
+                  "package_id",
+                  "payment_method_id",
+                  "payment_proof"
+                ],
                 "properties": {
                   "club_id": { "type": "string" },
                   "package_id": { "type": "string" },
@@ -1509,18 +1514,12 @@
                   "price": { "type": "number" },
                   "discount": { "type": "number" },
                   "fine": { "type": "number" },
-                  "status": {
+                  "notes": { "type": "string" },
+                  "payment_proof": {
                     "type": "string",
-                    "enum": [
-                      "pending",
-                      "paid",
-                      "rejected",
-                      "cancelled",
-                      "refunded"
-                    ]
-                  },
-                  "payment_proof": { "type": "string", "format": "binary" },
-                  "notes": { "type": "string" }
+                    "format": "binary",
+                    "description": "Payment receipt image (.png, .jpg, .jpeg, .webp, max 5MB)"
+                  }
                 }
               }
             }

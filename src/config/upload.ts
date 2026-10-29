@@ -24,7 +24,9 @@ const storage = multer.diskStorage({
   destination: (_req, _file, callback) => callback(null, UPLOAD_DIR),
   filename: (_req, file, callback) => {
     const extension = path.extname(file.originalname);
-    const safeExtension = ALLOWED_EXTENSIONS.test(extension) ? extension.toLowerCase() : ".jpg";
+    const safeExtension = ALLOWED_EXTENSIONS.test(extension)
+      ? extension.toLowerCase()
+      : ".jpg";
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     callback(null, `${unique}${safeExtension}`);
   },
@@ -42,7 +44,9 @@ export const imageUpload = multer({
   limits: { fileSize: env.UPLOAD_MAX_MB * 1024 * 1024 },
   fileFilter: (_req, file, callback) => {
     if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
-      callback(new BadRequest("Only JPEG, PNG, WEBP or GIF images are allowed"));
+      callback(
+        new BadRequest("Only JPEG, PNG, WEBP or GIF images are allowed"),
+      );
       return;
     }
 
@@ -52,6 +56,7 @@ export const imageUpload = multer({
   { name: "image", maxCount: 1 },
   { name: "file", maxCount: 1 },
   { name: "icon", maxCount: 1 }, // ⬅️ جديد
+  { name: "payment_proof", maxCount: 1 },
 ]);
 
 /**
@@ -62,14 +67,13 @@ export function getUploadedImage(req: {
   files?: unknown;
   file?: Express.Multer.File;
 }): Express.Multer.File | undefined {
-  const files = req.files as
-    | Record<string, Express.Multer.File[]>
-    | undefined;
+  const files = req.files as Record<string, Express.Multer.File[]> | undefined;
 
   return (
     files?.image?.[0] ??
     files?.file?.[0] ??
     files?.icon?.[0] ??
+    files?.payment_proof?.[0] ??
     req.file
   );
 }
@@ -79,7 +83,10 @@ export function publicUploadUrl(filename: string): string {
   return `/uploads/${filename}`;
 }
 
-function requestOrigin(req: { protocol: string; get(name: string): string | undefined }): string {
+function requestOrigin(req: {
+  protocol: string;
+  get(name: string): string | undefined;
+}): string {
   if (env.PUBLIC_BASE_URL) return env.PUBLIC_BASE_URL;
   return `${req.protocol}://${req.get("host") ?? "localhost"}`;
 }
@@ -87,7 +94,7 @@ function requestOrigin(req: { protocol: string; get(name: string): string | unde
 /** Turns a stored upload path into a full public URL (`https://sportego.org/uploads/...`). */
 export function absoluteUploadUrl(
   req: { protocol: string; get(name: string): string | undefined },
-  url: string | null | undefined
+  url: string | null | undefined,
 ): string | null {
   if (!url) return null;
   if (/^https?:\/\//i.test(url)) return url;
@@ -112,7 +119,9 @@ function uploadPathname(url: string): string | null {
 }
 
 /** Converts a public upload URL into its absolute path on disk. */
-export function uploadPathFromUrl(url: string | null | undefined): string | null {
+export function uploadPathFromUrl(
+  url: string | null | undefined,
+): string | null {
   if (!url) return null;
 
   const pathname = uploadPathname(url);
