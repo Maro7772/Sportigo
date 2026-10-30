@@ -104,7 +104,7 @@ export async function purchasePackageDirectly(req: Request, res: Response) {
   const { club } = tenantContext(req);
   const models = tenantModels(req);
 
-  const { package_id, cycle_id, payment_method_id, payment_reference, notes } = req.body;
+  const { package_id, cycle_id, payment_method_id, payment_reference, notes, payment_proof: proofUrl } = req.body;
 
   const [pricing, paymentMethod, settings] = await Promise.all([
     resolveCartPricing(package_id, cycle_id),
@@ -119,19 +119,35 @@ export async function purchasePackageDirectly(req: Request, res: Response) {
   const subscription = evaluateSubscription(club, settings.allowed_days);
   const fine = subscription.is_late_renewal ? settings.fines : 0;
 
-  // 1. Create central order
-  const order = await Order.create({
-    club_id: club._id,
-    package_id: pricing.package._id,
-    cycle_id: pricing.cycle._id ?? null,
-    payment_method_id: paymentMethod._id,
-    price: pricing.price,
-    discount: pricing.discount,
-    fine,
-    status: "pending",
-    payment_reference: payment_reference ?? null,
-    notes: notes ?? null,
-  });
+  // Resolve payment proof: uploaded file takes precedence over a URL in the body.
+  const file = getUploadedImage(req);
+  const uploadedProofUrl = file ? publicUploadUrl(file.filename) : null;
+  const finalProof = uploadedProofUrl ?? proofUrl ?? null;
+
+  if (!file && !proofUrl) {
+    throw new BadRequest("Payment proof is required (upload a file or provide an image URL)");
+  }
+
+  let order: any;
+  try {
+    // 1. Create central order
+    order = await Order.create({
+      club_id: club._id,
+      package_id: pricing.package._id,
+      cycle_id: pricing.cycle._id ?? null,
+      payment_method_id: paymentMethod._id,
+      price: pricing.price,
+      discount: pricing.discount,
+      fine,
+      status: "pending",
+      payment_proof: finalProof,
+      payment_reference: payment_reference ?? null,
+      notes: notes ?? null,
+    });
+  } catch (error) {
+    if (file) removeUploadedFile(file.path);
+    throw error;
+  }
 
   // 2. Synchronize to tenant DB cart collection as checked out
   const cart = await models.Cart.create({

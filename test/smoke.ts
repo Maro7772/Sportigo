@@ -1386,7 +1386,7 @@ async function main(): Promise<void> {
 
     const checkout = await api("POST", `/tenant/cart/${cartId}/checkout`, {
       headers: tenantHeaders,
-      body: { payment_method_id: paymentMethodId },
+      body: { payment_method_id: paymentMethodId, payment_proof: "https://example.com/proofs/cart.jpg" },
     });
     eq("checkout -> 201", checkout.status, 201);
     eq("checkout creates a pending order", checkout.body?.data?.order?.status, "pending");
@@ -1398,7 +1398,7 @@ async function main(): Promise<void> {
 
     const checkoutAgain = await api("POST", `/tenant/cart/${cartId}/checkout`, {
       headers: tenantHeaders,
-      body: { payment_method_id: paymentMethodId },
+      body: { payment_method_id: paymentMethodId, payment_proof: "https://example.com/proofs/cart.jpg" },
     });
     eq("checkout twice -> 409", checkoutAgain.status, 409);
 
@@ -1454,6 +1454,7 @@ async function main(): Promise<void> {
         package_id: packageId,
         cycle_id: cycleId,
         payment_method_id: paymentMethodId,
+        payment_proof: "https://example.com/proofs/direct.jpg",
         payment_reference: "INSTAPAY-TXN-9876",
         notes: "Direct checkout from tenant portal",
       },

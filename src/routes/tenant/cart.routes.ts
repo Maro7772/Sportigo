@@ -37,7 +37,7 @@ router.put("/:id", validate(updateCartSchema), catchAsync(updateCartItem));
 router.patch("/:id", validate(updateCartSchema), catchAsync(updateCartItem));
 router.delete("/:id", validate(idParamSchema), catchAsync(deleteCartItem));
 
-router.post("/:id/checkout", validate(checkoutCartSchema), catchAsync(checkoutCart));
+router.post("/:id/checkout", imageUpload, validate(checkoutCartSchema), catchAsync(checkoutCart));
 router.post("/:id/payment-proof", imageUpload, catchAsync(uploadCartPaymentProof));
 
 export default router;

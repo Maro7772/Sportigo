@@ -8,6 +8,7 @@ import { SuccessResponse } from "../../utils/response";
 import { buildListQuery } from "../../utils/listQuery";
 import { buildPaginationMeta } from "../../utils/pagination";
 import { tenantContext, tenantModels } from "../../middlewares/tenant";
+import { getUploadedImage, publicUploadUrl, removeUploadedFile } from "../../config/upload";
 import type { ICart } from "../../models/tenant";
 import { resolveCartPricing } from "../../services/tenantCart.service";
 import { filterById } from "./helpers";
@@ -182,18 +183,33 @@ export async function checkoutCart(req: Request, res: Response) {
   if (!paymentMethod) throw new NotFound("Payment method not found");
   if (!paymentMethod.status) throw new BadRequest("This payment method is not available");
 
-  const order = await Order.create({
-    club_id: club._id,
-    package_id: cart.package_id,
-    cycle_id: cart.cycle_id ?? null,
-    payment_method_id: paymentMethod._id,
-    price: cart.price,
-    discount: cart.discount,
-    fine: 0,
-    status: "pending",
-    payment_reference: req.body.payment_reference ?? null,
-    notes: req.body.notes ?? cart.notes ?? null,
-  });
+  const file = getUploadedImage(req);
+  const uploadedProofUrl = file ? publicUploadUrl(file.filename) : null;
+  const finalProof = uploadedProofUrl ?? req.body.payment_proof ?? null;
+
+  if (!file && !req.body.payment_proof) {
+    throw new BadRequest("Payment proof is required (upload a file or provide an image URL)");
+  }
+
+  let order: any;
+  try {
+    order = await Order.create({
+      club_id: club._id,
+      package_id: cart.package_id,
+      cycle_id: cart.cycle_id ?? null,
+      payment_method_id: paymentMethod._id,
+      price: cart.price,
+      discount: cart.discount,
+      fine: 0,
+      status: "pending",
+      payment_proof: finalProof,
+      payment_reference: req.body.payment_reference ?? null,
+      notes: req.body.notes ?? cart.notes ?? null,
+    });
+  } catch (error) {
+    if (file) removeUploadedFile(file.path);
+    throw error;
+  }
 
   cart.status = "checked_out";
   cart.order_id = order._id;

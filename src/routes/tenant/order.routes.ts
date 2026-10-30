@@ -24,7 +24,7 @@ const router = Router();
 router.use(requireTenantRole("admin"));
 
 router.get("/", validate(listTenantOrdersSchema), catchAsync(listTenantOrders));
-router.post("/", validate(purchaseOrderSchema), catchAsync(purchasePackageDirectly));
+router.post("/", imageUpload, validate(purchaseOrderSchema), catchAsync(purchasePackageDirectly));
 
 router.get("/:id", validate(idParamSchema), catchAsync(getTenantOrder));
 router.post("/:id/payment-proof", imageUpload, catchAsync(uploadTenantOrderPaymentProof));

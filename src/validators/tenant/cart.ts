@@ -31,6 +31,7 @@ export const checkoutCartSchema = z.object({
   body: z.object({
     payment_method_id: objectIdSchema,
     payment_reference: z.string().trim().max(200).optional(),
+    payment_proof: z.string().trim().max(2000).optional(),
     notes: z.string().trim().max(1000).optional(),
   }),
 });

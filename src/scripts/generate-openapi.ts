@@ -1876,6 +1876,7 @@ export function buildOpenApiSpec() {
         package_id: "6ae2e6e0a8448da0f3c60dd0",
         cycle_id: "6ae2e6e0a8448da0f3c60dd2",
         payment_method_id: "6ae2e6e0a8448da0f3c60df0",
+        payment_proof: "https://example.com/proofs/receipt.jpg",
         payment_reference: "INSTAPAY-TXN-9876",
         notes: "Direct checkout from tenant portal",
       }),
@@ -2039,6 +2040,7 @@ export function buildOpenApiSpec() {
       parameters: idParam(),
       requestBody: jsonBody({
         payment_method_id: "6ae2e6e0a8448da0f3c60df0",
+        payment_proof: "https://example.com/proofs/receipt.jpg",
         payment_reference: "REF-12345",
       }),
       responses: {
