@@ -238,6 +238,9 @@ async function main(): Promise<void> {
         package_id: packageId,
         start_date: new Date(Date.now() - 86_400_000).toISOString(),
         end_date: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+        admin_name: "Smoke Club Admin",
+        admin_email: "admin@smoke-club.com",
+        admin_password: TENANT_PASSWORD,
       },
     });
     eq("create club -> 201", club.status, 201);
@@ -247,7 +250,13 @@ async function main(): Promise<void> {
 
     const duplicateClub = await api("POST", "/clubs", {
       token,
-      body: { name: "Other", subdomain: "smoke-club" },
+      body: {
+        name: "Other",
+        subdomain: "smoke-club",
+        admin_name: "Other Admin",
+        admin_email: "admin@other.com",
+        admin_password: TENANT_PASSWORD,
+      },
     });
     eq("duplicate subdomain -> 409", duplicateClub.status, 409);
 
@@ -258,6 +267,9 @@ async function main(): Promise<void> {
         subdomain: "bad-dates",
         start_date: "2026-12-01",
         end_date: "2026-01-01",
+        admin_name: "Bad Dates Admin",
+        admin_email: "admin@bad-dates.com",
+        admin_password: TENANT_PASSWORD,
       },
     });
     eq("end_date before start_date -> 400", badDates.status, 400);
@@ -266,15 +278,20 @@ async function main(): Promise<void> {
     eq("club is populated with package", populatedClub.body?.data?.club?.package_id?.name, "Basketball Pro");
 
     console.log("\n▶ Orders");
+    const reviewPaymentMethodId: string = (
+      await api("GET", "/payment-methods/select", { token })
+    ).body.data.items[0]._id;
+
+    // A manually recorded order is already paid: the super admin attaches the receipt.
     const order = await api("POST", "/orders", {
       token,
       body: {
         club_id: clubId,
         package_id: packageId,
         cycle_id: cycleId,
-        payment_method_id: (await api("GET", "/payment-methods/select", { token })).body.data.items[0]._id,
+        payment_method_id: reviewPaymentMethodId,
         fine: 50,
-        status: "pending",
+        payment_proof: "https://example.com/proofs/manual-1.jpg",
       },
     });
     eq("create order -> 201", order.status, 201);
@@ -284,20 +301,10 @@ async function main(): Promise<void> {
       "order number generated",
       /^ORD-\d{4}-\d{6}$/.test(order.body?.data?.order?.order_number ?? "")
     );
+    eq("manual order is created as paid", order.body?.data?.order?.status, "paid");
+    check("paid_at is set automatically", Boolean(order.body?.data?.order?.paid_at));
+    check("manual order is audited", Boolean(order.body?.data?.order?.approved_by));
     const orderId: string = order.body?.data?.order?._id;
-
-    const paid = await api("PATCH", `/orders/${orderId}/status`, {
-      token,
-      body: { status: "paid" },
-    });
-    eq("update order status -> 200", paid.status, 200);
-    eq("order status is paid", paid.body?.data?.order?.status, "paid");
-    check("paid_at was set automatically", Boolean(paid.body?.data?.order?.paid_at));
-    check(
-      "order applied to subscription",
-      paid.body?.data?.order?.applied_to_subscription === true
-    );
-    eq("response reports subscription applied", paid.body?.data?.subscription_applied, true);
 
     const clubAfterPayment = await api("GET", `/clubs/${clubId}`, { token });
     eq(
@@ -334,6 +341,7 @@ async function main(): Promise<void> {
       body: { status: "paid" },
     });
     eq("marking a paid order as paid again -> 200", payAgain.status, 200);
+    eq("order stays paid", payAgain.body?.data?.order?.status, "paid");
 
     const clubAfterSecondPayment = await api("GET", `/clubs/${clubId}`, { token });
     eq(
@@ -349,9 +357,8 @@ async function main(): Promise<void> {
         club_id: clubId,
         package_id: packageId,
         cycle_id: amountCycleId,
-        payment_method_id: (await api("GET", "/payment-methods/select", { token })).body.data
-          .items[0]._id,
-        status: "pending",
+        payment_method_id: reviewPaymentMethodId,
+        payment_proof: "https://example.com/proofs/amount.png",
       },
     });
     eq("order with amount discount -> 201", amountOrder.status, 201);
@@ -367,46 +374,40 @@ async function main(): Promise<void> {
     const proofUpdate = await api("PUT", `/orders/${amountOrderId}`, {
       token,
       body: {
-        payment_proof: "https://example.com/proofs/amount.png",
-        payment_reference: "WALLET-12345",
+        payment_proof: "https://example.com/proofs/amount-2.png",
+        notes: "Corrected receipt",
       },
     });
     eq("attach payment proof -> 200", proofUpdate.status, 200);
     eq(
       "payment proof saved",
       proofUpdate.body?.data?.order?.payment_proof,
-      "https://example.com/proofs/amount.png"
+      "https://example.com/proofs/amount-2.png"
     );
-    eq(
-      "payment reference saved",
-      proofUpdate.body?.data?.order?.payment_reference,
-      "WALLET-12345"
-    );
+    eq("order notes saved", proofUpdate.body?.data?.order?.notes, "Corrected receipt");
 
     const deleteAmountOrder = await api("DELETE", `/orders/${amountOrderId}`, { token });
-    eq("delete pending amount order -> 200", deleteAmountOrder.status, 200);
+    eq("delete applied amount order -> 409", deleteAmountOrder.status, 409);
 
-    console.log("\n▶ Order review flow (proof -> approve / reject)");
-    const reviewPaymentMethodId: string = (
-      await api("GET", "/payment-methods/select", { token })
-    ).body.data.items[0]._id;
+    console.log("\n▶ Order review flow (approve / reject pending orders)");
+    // Orders created by a club (checkout) start as pending and wait for the super admin.
+    const { Order } = await import("../src/models/Order");
 
-    const proofOrder = await api("POST", "/orders", {
-      token,
-      body: {
-        club_id: clubId,
-        package_id: packageId,
-        cycle_id: cycleId,
-        payment_method_id: reviewPaymentMethodId,
-        payment_proof: "https://example.com/proofs/receipt-1.jpg",
-        payment_reference: "BANK-99881",
-        status: "pending",
-      },
+    const pendingOrder = await Order.create({
+      club_id: clubId,
+      package_id: packageId,
+      cycle_id: cycleId,
+      payment_method_id: reviewPaymentMethodId,
+      price: 400,
+      discount: 0,
+      fine: 0,
+      status: "pending",
+      payment_proof: "https://example.com/proofs/receipt-1.jpg",
+      applied_to_subscription: false,
     });
-    eq("pending order with payment proof -> 201", proofOrder.status, 201);
-    eq("pending order stays pending", proofOrder.body?.data?.order?.status, "pending");
-    eq("pending order is not applied yet", proofOrder.body?.data?.subscription_applied, false);
-    const proofOrderId: string = proofOrder.body?.data?.order?._id;
+    const proofOrderId = String(pendingOrder._id);
+    eq("pending order starts as pending", pendingOrder.status, "pending");
+    eq("pending order is not applied yet", pendingOrder.applied_to_subscription, false);
 
     const clubBeforeApproval = await api("GET", `/clubs/${clubId}`, { token });
     const endBeforeApproval: string = clubBeforeApproval.body?.data?.club?.end_date;
@@ -422,7 +423,7 @@ async function main(): Promise<void> {
       Boolean(approved.body?.data?.order?.approved_at) &&
         Boolean(approved.body?.data?.order?.approved_by)
     );
-    eq("approval applied the subscription", approved.body?.data?.subscription_applied, true);
+    eq("approval applied the subscription", Boolean(approved.body?.data?.order?.paid_at), true);
     eq(
       "approval keeps the payment proof",
       approved.body?.data?.order?.payment_proof,
@@ -447,19 +448,19 @@ async function main(): Promise<void> {
     });
     eq("approving an approved order -> 409", approveAgain.status, 409);
 
-    const rejectTarget = await api("POST", "/orders", {
-      token,
-      body: {
-        club_id: clubId,
-        package_id: packageId,
-        cycle_id: cycleId,
-        payment_method_id: reviewPaymentMethodId,
-        payment_proof: "https://example.com/proofs/broken.jpg",
-        status: "pending",
-      },
+    const rejectTargetOrder = await Order.create({
+      club_id: clubId,
+      package_id: packageId,
+      cycle_id: cycleId,
+      payment_method_id: reviewPaymentMethodId,
+      price: 400,
+      discount: 0,
+      fine: 0,
+      status: "pending",
+      payment_proof: "https://example.com/proofs/broken.jpg",
+      applied_to_subscription: false,
     });
-    eq("create order to reject -> 201", rejectTarget.status, 201);
-    const rejectTargetId: string = rejectTarget.body?.data?.order?._id;
+    const rejectTargetId = String(rejectTargetOrder._id);
 
     const rejectWithoutReason = await api("POST", `/orders/${rejectTargetId}/reject`, {
       token,
@@ -478,13 +479,31 @@ async function main(): Promise<void> {
       rejected.body?.data?.order?.rejection_reason,
       "Receipt is unreadable"
     );
-    eq("rejected order is not applied", rejected.body?.data?.order?.applied_to_subscription, false);
+    eq(
+      "rejected order keeps its proof",
+      rejected.body?.data?.order?.payment_proof,
+      "https://example.com/proofs/broken.jpg"
+    );
 
     const approveRejected = await api("POST", `/orders/${rejectTargetId}/approve`, {
       token,
       body: {},
     });
     eq("approving a rejected order -> 409", approveRejected.status, 409);
+
+    const deletableOrder = await Order.create({
+      club_id: clubId,
+      package_id: packageId,
+      cycle_id: cycleId,
+      payment_method_id: reviewPaymentMethodId,
+      price: 400,
+      discount: 0,
+      fine: 0,
+      status: "pending",
+      applied_to_subscription: false,
+    });
+    const deletedPending = await api("DELETE", `/orders/${String(deletableOrder._id)}`, { token });
+    eq("delete pending order -> 200", deletedPending.status, 200);
 
     console.log("\n▶ Delete guards");
     const deleteUsedGame = await api("DELETE", `/games/${basketballId}`, { token });
@@ -524,6 +543,9 @@ async function main(): Promise<void> {
         package_id: packageId,
         start_date: new Date(Date.now() - 40 * DAY).toISOString(),
         end_date: new Date(Date.now() - 3 * DAY).toISOString(),
+        admin_name: "Late Club Admin",
+        admin_email: "admin@late-club.com",
+        admin_password: TENANT_PASSWORD,
       },
     });
     eq("create club with past end_date -> 201", lateClub.status, 201);
@@ -560,6 +582,8 @@ async function main(): Promise<void> {
         subdomain: "expired-club",
         start_date: new Date(Date.now() - 40 * DAY).toISOString(),
         end_date: new Date(Date.now() - 10 * DAY).toISOString(),
+        admin_name: "Expired Club Admin",
+        admin_email: "admin@expired-club.com",
         admin_password: TENANT_PASSWORD,
       },
     });
@@ -587,7 +611,7 @@ async function main(): Promise<void> {
         package_id: packageId,
         cycle_id: cycleId,
         payment_method_id: paymentMethodId,
-        status: "pending",
+        payment_proof: "https://example.com/proofs/late-renewal.jpg",
       },
     });
     eq("late renewal order -> 201", lateOrder.status, 201);
@@ -783,10 +807,26 @@ async function main(): Promise<void> {
     });
     eq("upload without a file -> 400", emptyUpload.status, 400);
 
+    // Payment proofs are attached through `PUT /orders/{id}` as multipart/form-data.
+    const uploadOrder = await api("POST", "/orders", {
+      token,
+      body: {
+        club_id: clubId,
+        package_id: packageId,
+        cycle_id: cycleId,
+        payment_method_id: (
+          await api("GET", "/payment-methods/select", { token })
+        ).body.data.items[0]._id,
+        payment_proof: "https://example.com/proofs/placeholder.png",
+      },
+    });
+    eq("create order for proof upload -> 201", uploadOrder.status, 201);
+    const uploadOrderId: string = uploadOrder.body?.data?.order?._id;
+
     const proofForm = new FormData();
-    proofForm.append("image", new Blob([png], { type: "image/png" }), "proof.png");
-    const proofUpload = await fetch(`${base}/orders/${proofOrderId}/payment-proof`, {
-      method: "POST",
+    proofForm.append("payment_proof", new Blob([png], { type: "image/png" }), "proof.png");
+    const proofUpload = await fetch(`${base}/orders/${uploadOrderId}`, {
+      method: "PUT",
       headers: { Authorization: `Bearer ${token}` },
       body: proofForm,
     });
@@ -794,7 +834,7 @@ async function main(): Promise<void> {
     eq("upload order payment proof -> 200", proofUpload.status, 200);
     check(
       "order payment proof saved as a local url",
-      String(proofBody?.data?.order?.payment_proof ?? "").startsWith("/uploads/")
+      String(proofBody?.data?.order?.payment_proof ?? "").includes("/uploads/")
     );
 
     const proofFilename: string = String(proofBody?.data?.order?.payment_proof ?? "").replace(
@@ -802,8 +842,29 @@ async function main(): Promise<void> {
       ""
     );
 
-    fs.rmSync(path.join(uploadsDir, uploadedFilename), { force: true });
-    fs.rmSync(path.join(uploadsDir, proofFilename), { force: true });
+    // Only delete real files: an empty name would resolve to the uploads folder itself.
+    for (const filename of [uploadedFilename, proofFilename]) {
+      if (filename) fs.rmSync(path.join(uploadsDir, filename), { force: true });
+    }
+
+    // A payment method icon can be uploaded as a file instead of a URL.
+    const iconForm = new FormData();
+    iconForm.append("name", "Uploaded Icon Method");
+    iconForm.append("icon", new Blob([png], { type: "image/png" }), "icon.png");
+    const iconResponse = await fetch(`${base}/payment-methods`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: iconForm,
+    });
+    const iconBody: any = await iconResponse.json();
+    eq("create payment method with icon file -> 201", iconResponse.status, 201);
+    check(
+      "icon file is saved as a local url",
+      String(iconBody?.data?.payment_method?.icon ?? "").includes("/uploads/")
+    );
+    const iconFilename = String(iconBody?.data?.payment_method?.icon ?? "")
+      .split("/uploads/")[1];
+    if (iconFilename) fs.rmSync(path.join(uploadsDir, iconFilename), { force: true });
 
     console.log("\n▶ Tenant (wildcard subdomain -> separate database)");
     const tenantHeaders: Record<string, string> = { "x-subdomain": "smoke-tenant" };
@@ -824,6 +885,8 @@ async function main(): Promise<void> {
         package_id: packageId,
         start_date: new Date(Date.now() - 10 * DAY).toISOString(),
         end_date: new Date(Date.now() + 300 * DAY).toISOString(),
+        admin_name: "Smoke Tenant Admin",
+        admin_email: "admin@smoke-tenant.com",
         admin_password: TENANT_PASSWORD,
       },
     });
@@ -842,7 +905,13 @@ async function main(): Promise<void> {
 
     const reservedClub = await api("POST", "/clubs", {
       token,
-      body: { name: "Reserved", subdomain: "admin" },
+      body: {
+        name: "Reserved",
+        subdomain: "admin",
+        admin_name: "Reserved Admin",
+        admin_email: "admin@reserved.com",
+        admin_password: TENANT_PASSWORD,
+      },
     });
     eq("reserved subdomain -> 400", reservedClub.status, 400);
 
@@ -1493,6 +1562,8 @@ async function main(): Promise<void> {
         subdomain: "smoke-tenant-b",
         start_date: new Date(Date.now() - 5 * DAY).toISOString(),
         end_date: new Date(Date.now() + 100 * DAY).toISOString(),
+        admin_name: "Smoke Tenant B Admin",
+        admin_email: "admin@smoke-tenant-b.com",
         admin_password: TENANT_PASSWORD,
       },
     });
@@ -1629,6 +1700,8 @@ async function main(): Promise<void> {
         status: false,
         start_date: new Date(Date.now() - 5 * DAY).toISOString(),
         end_date: new Date(Date.now() + 100 * DAY).toISOString(),
+        admin_name: "Disabled Club Admin",
+        admin_email: "admin@disabled-club.com",
         admin_password: TENANT_PASSWORD,
       },
     });
@@ -1657,7 +1730,14 @@ async function main(): Promise<void> {
       1
     );
 
-    const initTenant = await api("POST", `/clubs/${tenantClubId}/tenant/init`, { token });
+    const initTenant = await api("POST", `/clubs/${tenantClubId}/tenant/init`, {
+      token,
+      body: {
+        admin_name: "Smoke Tenant Admin",
+        admin_email: "admin@smoke-tenant.com",
+        admin_password: TENANT_PASSWORD,
+      },
+    });
     eq("init tenant database -> 200", initTenant.status, 200);
     check("init returns the tenant settings", Boolean(initTenant.body?.data?.settings?.key));
 

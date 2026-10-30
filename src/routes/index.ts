@@ -10,23 +10,27 @@ import settingsRoutes from "./settings.routes";
 import dashboardRoutes from "./dashboard.routes";
 import uploadRoutes from "./upload.routes";
 import tenantRoutes from "./tenant";
-import { extractSubdomain } from "../middlewares/tenant";
+import { extractSubdomain, isSuperAdminLabel } from "../middlewares/tenant";
 import { ForbiddenError } from "../errors";
 
 const router = Router();
 
 /**
- * Super Admin routes are strictly reserved for the main apex domain (sportego.org),
- * admin subdomain (admin.sportego.org / api.sportego.org) or localhost development.
- * Requests sent from tenant subdomains (e.g. ahly.sportego.org/api/clubs) are blocked.
+ * Super Admin routes are served from the apex domain (`sportego.org`) and from
+ * the reserved hosts (`admin.sportego.org`, `api.sportego.org`,
+ * `www.sportego.org`). Requests sent from a tenant host
+ * (e.g. `ahly.sportego.org/api/clubs`) are blocked, so a club can never reach
+ * the platform API by accident.
  */
 function restrictToSuperAdminHost(req: Request, _res: Response, next: NextFunction) {
   const subdomain = extractSubdomain(req);
-  if (subdomain && subdomain !== "admin" && subdomain !== "api" && subdomain !== "www") {
+
+  if (subdomain && !isSuperAdminLabel(subdomain)) {
     throw new ForbiddenError(
       "Super Admin API cannot be accessed from a tenant subdomain."
     );
   }
+
   next();
 }
 

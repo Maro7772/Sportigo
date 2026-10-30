@@ -91,4 +91,21 @@ export const env = {
    * (e.g. `ahly.example.com` -> database `ahly`).
    */
   TENANT_DB_PREFIX: str("TENANT_DB_PREFIX", ""),
+
+  /**
+   * Apex domain of the platform. A host that ends with `.<APP_DOMAIN>` is a
+   * tenant (`ahly.sportego.org` -> club `ahly`), while the apex itself
+   * (`sportego.org`) belongs to the super admin.
+   */
+  APP_DOMAIN: str("APP_DOMAIN", "sportego.org").trim().toLowerCase(),
+
+  /**
+   * Host labels reserved for the super admin app. They are never treated as
+   * tenants, so `admin.sportego.org` and `www.sportego.org` both serve the
+   * super admin API.
+   */
+  SUPER_ADMIN_SUBDOMAINS: str("SUPER_ADMIN_SUBDOMAINS", "admin,api,www")
+    .split(",")
+    .map((label) => label.trim().toLowerCase())
+    .filter(Boolean),
 };

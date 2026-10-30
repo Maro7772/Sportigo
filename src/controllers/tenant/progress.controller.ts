@@ -65,6 +65,37 @@ export async function listProgress(req: Request, res: Response) {
   filterById(filter, req, "player_id");
   filterById(filter, req, "action_id");
 
+  // `?from=` / `?to=` filter the events by the linked match's date, so a club
+  // can look at a player's (or the whole team's) performance in a date range.
+  const dateFilter: Record<string, Date> = {};
+  const from = req.query.from;
+  if (typeof from === "string" && from.trim()) {
+    const date = new Date(from);
+    if (Number.isNaN(date.getTime())) throw new BadRequest("Invalid from date");
+    dateFilter.$gte = date;
+  }
+  const to = req.query.to;
+  if (typeof to === "string" && to.trim()) {
+    const date = new Date(to);
+    if (Number.isNaN(date.getTime())) throw new BadRequest("Invalid to date");
+    dateFilter.$lte = date;
+  }
+  if (Object.keys(dateFilter).length) {
+    const matching = await models.Match.find({ date: dateFilter })
+      .select("_id")
+      .lean();
+    const ids = matching.map((match) => match._id);
+
+    if (filter.match_id) {
+      const requested = String(filter.match_id);
+      filter.match_id = ids.some((id) => String(id) === requested)
+        ? filter.match_id
+        : { $in: [] };
+    } else {
+      filter.match_id = { $in: ids };
+    }
+  }
+
   const [items, total] = await Promise.all([
     models.PlayerProgress.find(filter as FilterQuery<IPlayerProgress>)
       .sort(sort)

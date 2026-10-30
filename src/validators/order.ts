@@ -49,25 +49,26 @@ export const createOrderSchema = z.object({
   }),
 });
 
+/**
+ * The body may be empty: `imageUpload` accepts a new `payment_proof` file that
+ * is not part of `req.body`. The controller rejects a request that carries
+ * neither a file nor any field.
+ */
 export const updateOrderSchema = z.object({
   params: idParamSchema.shape.params,
-  body: z
-    .object({
-      club_id: objectIdSchema.optional(),
-      package_id: objectIdSchema.optional(),
-      cycle_id: objectIdSchema.optional().nullable(),
-      payment_method_id: objectIdSchema.optional(),
-      price: coerceNumber,
-      discount: coerceNumber,
-      fine: coerceNumber,
-      status: orderStatusSchema.optional(),
-      payment_proof: paymentProofUrlSchema,
-      paid_at: paidAtSchema,
-      notes: notesSchema,
-    })
-    .refine((data) => Object.keys(data).length > 0, {
-      message: "At least one field is required",
-    }),
+  body: z.object({
+    club_id: objectIdSchema.optional(),
+    package_id: objectIdSchema.optional(),
+    cycle_id: objectIdSchema.optional().nullable(),
+    payment_method_id: objectIdSchema.optional(),
+    price: coerceNumber,
+    discount: coerceNumber,
+    fine: coerceNumber,
+    status: orderStatusSchema.optional(),
+    payment_proof: paymentProofUrlSchema,
+    paid_at: paidAtSchema,
+    notes: notesSchema,
+  }),
 });
 
 export const updateOrderStatusSchema = z.object({

@@ -17,6 +17,8 @@
     "test:smoke": "tsx test/smoke.ts",
     "test:live": "tsx test/live-check.ts",
     "test:reset-live": "node test/reset-live.mjs",
+    "test:host": "tsx test/host-resolution.ts",
+    "test:openapi": "tsx test/openapi-check.ts",
     "openapi": "tsx src/scripts/generate-openapi.ts"
   },
   "engines": {

@@ -61,7 +61,9 @@ export const createPaymentMethodSchema = z.object({
         z.string().trim().max(1000).nullable(),
       )
       .optional(),
-    icon: iconFieldOptional, // 👈 إجباري
+    // Optional here: `imageUpload` can supply the icon as a file, and the
+    // controller enforces "file or URL" with a clear 400 message.
+    icon: iconFieldOptional.optional(),
   }),
 });
 

@@ -12,6 +12,7 @@ import {
   getTenantConnection,
   tenantDbName,
 } from "../config/tenant";
+import { env } from "../config/env";
 import { getTenantModels as compileTenantModels, type TenantModels } from "../models/tenant";
 import { AppError, NotFound } from "../errors";
 import { catchAsync } from "../utils/catchAsync";
@@ -23,12 +24,89 @@ export interface TenantContext {
   subscription: SubscriptionInfo;
 }
 
+const IPV4 = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+
+/** Lowercases a host value and strips the port, a trailing dot and proxies lists. */
+export function normalizeHost(value: string): string {
+  return String(value ?? "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase()
+    .replace(/:\d+$/, "")
+    .replace(/\.$/, "");
+}
+
+/** The host the client actually used, preferring the reverse-proxy header. */
+export function requestHost(req: Request): string {
+  const forwarded = req.headers["x-forwarded-host"];
+  const raw =
+    (Array.isArray(forwarded) ? forwarded[0] : forwarded) ??
+    req.headers.host ??
+    req.hostname ??
+    "";
+
+  return normalizeHost(String(raw));
+}
+
+/** `admin`, `api` and `www` belong to the super admin app, never to a club. */
+export function isSuperAdminLabel(label: string): boolean {
+  return env.SUPER_ADMIN_SUBDOMAINS.includes(label);
+}
+
+/**
+ * Extracts the tenant label from a host name.
+ * Returns `""` when the host belongs to the super admin (or is not a domain).
+ *
+ * | Host                       | Result |
+ * |----------------------------|--------|
+ * | `sportego.org`             | `""`   (apex = super admin) |
+ * | `www.sportego.org`         | `""`   (reserved label) |
+ * | `admin.sportego.org`       | `""`   (reserved label) |
+ * | `ahly.sportego.org`        | `ahly` |
+ * | `ahly.club.example.com`    | `ahly` (first label before the dot) |
+ * | `ahly.localhost`           | `ahly` (local development) |
+ * | `localhost`, `127.0.0.1`   | `""`   |
+ */
+export function tenantFromHost(host: string): string {
+  const hostname = normalizeHost(host);
+
+  if (!hostname) return "";
+  // Bare localhost, raw IPv4/IPv6 addresses: no tenant.
+  if (hostname === "localhost" || IPV4.test(hostname) || hostname.includes(":")) {
+    return "";
+  }
+
+  const parts = hostname.split(".");
+  if (parts.length < 2) return "";
+
+  // <club>.localhost -> club (local development).
+  if (parts[1] === "localhost") {
+    return isSuperAdminLabel(parts[0]) ? "" : parts[0];
+  }
+
+  // <club>.sportego.org -> club. The apex itself stays with the super admin.
+  const appDomain = env.APP_DOMAIN;
+  if (appDomain && hostname !== appDomain && hostname.endsWith(`.${appDomain}`)) {
+    const label = hostname.slice(0, -(appDomain.length + 1)).split(".")[0];
+    return label && !isSuperAdminLabel(label) ? label : "";
+  }
+
+  // Unknown domain: a 2-label host is an apex, never a tenant.
+  if (parts.length < 3) return "";
+
+  // The first label before the dot is the club, e.g. `ahly.club.example.com`.
+  return isSuperAdminLabel(parts[0]) ? "" : parts[0];
+}
+
 /**
  * Extracts the tenant subdomain from the request, in this order:
  * 1. `x-subdomain` header (handy for local development and mobile clients)
  * 2. `?subdomain=` query parameter
  * 3. The host name: the first label before the first dot
- *    (`ahly.example.com` -> `ahly`, `ahly.localhost:4000` -> `ahly`)
+ *    (`ahly.sportego.org` -> `ahly`, `ahly.localhost:4000` -> `ahly`).
+ *
+ * The apex (`sportego.org`), `www` and the super-admin hosts (`admin`, `api`)
+ * return `""`, so the super admin API is reachable from all of them.
  */
 export function extractSubdomain(req: Request): string {
   const header = req.headers["x-subdomain"];
@@ -41,25 +119,7 @@ export function extractSubdomain(req: Request): string {
     return cleanSubdomain(query);
   }
 
-  const rawHost = String(req.headers.host ?? req.hostname ?? "")
-    .split(":")[0]
-    .trim()
-    .toLowerCase();
-
-  if (!rawHost) return "";
-
-  const parts = rawHost.split(".");
-  if (parts.length < 2) return "";
-
-  // admin.example.com / www.example.com -> the second label is the tenant.
-  if (parts[0] === "www" && parts.length > 2) return parts[1];
-
-  // localhost / 127.0.0.1 have no tenant.
-  if (parts[0] === "localhost" || parts[0] === "127" || /^\d+$/.test(parts[0])) {
-    return "";
-  }
-
-  return parts[0];
+  return tenantFromHost(requestHost(req));
 }
 
 /**

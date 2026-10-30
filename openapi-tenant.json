@@ -3,24 +3,28 @@
   "info": {
     "title": "Scouting Tenant Club API",
     "version": "1.0.0",
-    "description": "API for Club Tenant managing Team Roster, Players, Matches, Scouting Progress, Subscriptions, Packages, and Invoices."
+    "description": "API for a club tenant (team roster, players, matches, scouting progress, subscription, packages, invoices).\n\nEach club is served from its own host: `ahly.sportego.org` -> club `ahly` -> MongoDB database `ahly`.\nThe tenant is the first label before the dot, and every club has an isolated database.\n\nOn localhost, send the `x-subdomain` header or `?subdomain=ahly` instead of using a subdomain."
   },
   "servers": [
     {
       "url": "http://localhost:4000",
-      "description": "Local Development Server (Use 'x-subdomain' header for tenant routes)"
+      "description": "Local Development Server (use 'x-subdomain' header or ?subdomain= for tenant routes)"
     },
     {
       "url": "https://sportego.org",
-      "description": "Production Server (sportego.org)"
+      "description": "Production - Super Admin (apex domain)"
+    },
+    {
+      "url": "https://admin.sportego.org",
+      "description": "Production - Super Admin (admin subdomain)"
     },
     {
       "url": "https://{subdomain}.sportego.org",
-      "description": "Tenant Club Production Host (Wildcard subdomain)",
+      "description": "Production - Tenant Club (wildcard subdomain)",
       "variables": {
         "subdomain": {
           "default": "ahly",
-          "description": "Club subdomain identifier"
+          "description": "Club subdomain identifier (also the database name)"
         }
       }
     }
@@ -43,7 +47,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "x-subdomain",
-        "description": "Subdomain of the club (e.g. 'ahly'). Required for /api/tenant/* routes when developing on localhost."
+        "description": "Club subdomain (e.g. 'ahly'). Optional in production: the tenant is taken from the host (`ahly.sportego.org`). Required on localhost or when calling the API from the apex domain."
       }
     },
     "schemas": {
@@ -170,12 +174,12 @@
           {
             "name": "x-subdomain",
             "in": "header",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string",
               "example": "ahly"
             },
-            "description": "Club subdomain identifier"
+            "description": "Club subdomain. Optional when the request already targets `ahly.sportego.org`."
           }
         ],
         "requestBody": {
@@ -279,6 +283,78 @@
           "Tenant - Auth"
         ],
         "summary": "Change Tenant Password",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "current_password": "Tenant@123456",
+                  "new_password": "NewTenant@123456"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Password changed successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "admin": {
+                          "type": "object",
+                          "example": {
+                            "email": "admin@ahly.com"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Tenant - Auth"
+        ],
+        "summary": "Change Tenant Password (alias)",
+        "description": "Same handler as `PUT /api/tenant/auth/change-password`. Changing the password revokes every previously issued tenant token (`password_version`).",
         "security": [
           {
             "TenantAuth": []
@@ -1483,6 +1559,80 @@
             "$ref": "#/components/responses/NotFound"
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "Tenant - Settings & Branding"
+        ],
+        "summary": "Update Club Branding (alias)",
+        "description": "Same handler as `PUT /api/tenant/settings`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "background_color": [
+                    "#e11d48"
+                  ],
+                  "color": [
+                    "#ffffff"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "settings": {
+                          "type": "object",
+                          "example": {
+                            "background_color": [
+                              "#e11d48"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
       }
     },
     "/api/tenant/settings/logo": {
@@ -2008,6 +2158,85 @@
             "$ref": "#/components/responses/NotFound"
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "Tenant - Teams"
+        ],
+        "summary": "Update Team (alias)",
+        "description": "Same handler as `PUT /api/tenant/teams/{id}`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "name": "Senior Football Team"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "team": {
+                          "type": "object",
+                          "example": {
+                            "name": "Senior Football Team"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
       }
     },
     "/api/tenant/players": {
@@ -2413,6 +2642,86 @@
                         "id": {
                           "type": "object",
                           "example": "6ae2e88d1540b80d32644ae7"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Tenant - Players"
+        ],
+        "summary": "Update Player (alias)",
+        "description": "Same handler as `PUT /api/tenant/players/{id}`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "weight": 72
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "player": {
+                          "type": "object",
+                          "example": {
+                            "name": "Mohamed Salah",
+                            "weight": 72
+                          }
                         }
                       }
                     }
@@ -2857,6 +3166,85 @@
             "$ref": "#/components/responses/NotFound"
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "Tenant - Matches"
+        ],
+        "summary": "Update Match (alias)",
+        "description": "Same handler as `PUT /api/tenant/matches/{id}`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "name": "Cup Final Match"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "match": {
+                          "type": "object",
+                          "example": {
+                            "name": "Cup Final Match"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
       }
     },
     "/api/tenant/player-progress": {
@@ -3126,6 +3514,233 @@
                         "id": {
                           "type": "object",
                           "example": "6ae2e88d1540b80d32644b20"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Tenant - Player Progress"
+        ],
+        "summary": "Get Player Action Event",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "player_progress": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b20",
+                            "match_id": "6ae2e88d1540b80d32644b00",
+                            "player_id": "6ae2e88d1540b80d32644ae7",
+                            "action_id": "6ae2e6e0a8448da0f3c60dc5"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Tenant - Player Progress"
+        ],
+        "summary": "Update Player Action Event",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "match_id": "6ae2e88d1540b80d32644b00",
+                  "player_id": "6ae2e88d1540b80d32644ae7",
+                  "action_id": "6ae2e6e0a8448da0f3c60dc5"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "player_progress": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b21",
+                            "action_id": "6ae2e6e0a8448da0f3c60dc5"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Tenant - Player Progress"
+        ],
+        "summary": "Update Player Action Event (alias)",
+        "description": "Same handler as `PUT /api/tenant/player-progress/{id}`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "action_id": "6ae2e6e0a8448da0f3c60dc5"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "player_progress": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b21"
+                          }
                         }
                       }
                     }
@@ -3548,6 +4163,88 @@
             "$ref": "#/components/responses/NotFound"
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "Tenant - Sub-Admins"
+        ],
+        "summary": "Update Sub-Admin (alias)",
+        "description": "Same handler as `PUT /api/tenant/admins/{id}`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "role": "viewer",
+                  "status": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "admin": {
+                          "type": "object",
+                          "example": {
+                            "email": "hossam@ahly.com",
+                            "role": "viewer",
+                            "status": false
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
       }
     },
     "/api/tenant/uploads": {
@@ -3623,6 +4320,1119 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/tenant/auth/logout": {
+      "post": {
+        "tags": [
+          "Tenant - Auth"
+        ],
+        "summary": "Club Member Logout",
+        "description": "Stateless logout; the client drops the tenant token.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Logged out",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Logged out successfully"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/cart/bulk-delete": {
+      "post": {
+        "tags": [
+          "Tenant - Cart & Checkout"
+        ],
+        "summary": "Bulk Delete Cart Items",
+        "description": "Deletes every document whose id is in `ids`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e88d1540b80d32644b57"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 cart item(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/cart/bulk": {
+      "delete": {
+        "tags": [
+          "Tenant - Cart & Checkout"
+        ],
+        "summary": "Bulk Delete Cart Items (alias)",
+        "description": "Same handler as `POST /api/tenant/cart/bulk-delete`, kept for clients that prefer `DELETE`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e88d1540b80d32644b57"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 cart item(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/cart/{id}": {
+      "get": {
+        "tags": [
+          "Tenant - Cart & Checkout"
+        ],
+        "summary": "Get Cart Item",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "cart": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b57",
+                            "status": "cart",
+                            "final_price": 4500
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Tenant - Cart & Checkout"
+        ],
+        "summary": "Update Cart Item",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "package_id": "6ae2e6e0a8448da0f3c60dd0",
+                  "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
+                  "notes": "Switched to the annual cycle"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "cart": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b57",
+                            "final_price": 14400
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Tenant - Cart & Checkout"
+        ],
+        "summary": "Update Cart Item (alias)",
+        "description": "Same handler as `PUT /api/tenant/cart/{id}`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "notes": "Please call before 5pm"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "cart": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b57"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Tenant - Cart & Checkout"
+        ],
+        "summary": "Remove Cart Item",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Cart item deleted successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "object",
+                          "example": "6ae2e88d1540b80d32644b57"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/tenant/cart/{id}/payment-proof": {
+      "post": {
+        "tags": [
+          "Tenant - Cart & Checkout"
+        ],
+        "summary": "Upload Payment Proof for a Cart Item",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Upload file (multipart/form-data)",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "payment_proof": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Image file (.png, .jpg, .jpeg, .webp, max 5MB)"
+                  }
+                },
+                "required": [
+                  "payment_proof"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "cart": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b57",
+                            "payment_proof": "/uploads/proof-club-123.png"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/tenant/teams/bulk-delete": {
+      "post": {
+        "tags": [
+          "Tenant - Teams"
+        ],
+        "summary": "Bulk Delete Teams",
+        "description": "Deletes every document whose id is in `ids`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e88d1540b80d32644ad1"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 team(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/teams/bulk": {
+      "delete": {
+        "tags": [
+          "Tenant - Teams"
+        ],
+        "summary": "Bulk Delete Teams (alias)",
+        "description": "Same handler as `POST /api/tenant/teams/bulk-delete`, kept for clients that prefer `DELETE`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e88d1540b80d32644ad1"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 team(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/players/bulk-delete": {
+      "post": {
+        "tags": [
+          "Tenant - Players"
+        ],
+        "summary": "Bulk Delete Players",
+        "description": "Deletes every document whose id is in `ids`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e88d1540b80d32644ae7"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 player(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/players/bulk": {
+      "delete": {
+        "tags": [
+          "Tenant - Players"
+        ],
+        "summary": "Bulk Delete Players (alias)",
+        "description": "Same handler as `POST /api/tenant/players/bulk-delete`, kept for clients that prefer `DELETE`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e88d1540b80d32644ae7"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 player(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/matches/bulk-delete": {
+      "post": {
+        "tags": [
+          "Tenant - Matches"
+        ],
+        "summary": "Bulk Delete Matchs",
+        "description": "Deletes every document whose id is in `ids`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e88d1540b80d32644b00"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 match(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/matches/bulk": {
+      "delete": {
+        "tags": [
+          "Tenant - Matches"
+        ],
+        "summary": "Bulk Delete Matchs (alias)",
+        "description": "Same handler as `POST /api/tenant/matches/bulk-delete`, kept for clients that prefer `DELETE`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e88d1540b80d32644b00"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 match(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/player-progress/bulk-delete": {
+      "post": {
+        "tags": [
+          "Tenant - Player Progress"
+        ],
+        "summary": "Bulk Delete Player Progresss",
+        "description": "Deletes every document whose id is in `ids`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e88d1540b80d32644b20"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 player progress(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/player-progress/bulk": {
+      "delete": {
+        "tags": [
+          "Tenant - Player Progress"
+        ],
+        "summary": "Bulk Delete Player Progresss (alias)",
+        "description": "Same handler as `POST /api/tenant/player-progress/bulk-delete`, kept for clients that prefer `DELETE`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e88d1540b80d32644b20"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 player progress(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/admins/bulk-delete": {
+      "post": {
+        "tags": [
+          "Tenant - Sub-Admins"
+        ],
+        "summary": "Bulk Delete Admins",
+        "description": "Deletes every document whose id is in `ids`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e6e0a8448da0f3c60de9"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 admin(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/admins/bulk": {
+      "delete": {
+        "tags": [
+          "Tenant - Sub-Admins"
+        ],
+        "summary": "Bulk Delete Admins (alias)",
+        "description": "Same handler as `POST /api/tenant/admins/bulk-delete`, kept for clients that prefer `DELETE`.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e6e0a8448da0f3c60de9"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 admin(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/admins/select": {
+      "get": {
+        "tags": [
+          "Tenant - Sub-Admins"
+        ],
+        "summary": "Select Club Admins (Dropdown)",
+        "description": "Lightweight list used to fill dropdowns/select inputs.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "data": {
+                    "admins": [
+                      {
+                        "_id": "6ae2e6e0a8448da0f3c60de9",
+                        "name": "Coach Hossam",
+                        "role": "coach"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
           }
         }
       }

@@ -98,6 +98,108 @@ function jsonBody(example: any, description = "Request Payload") {
   };
 }
 
+/** `multipart/form-data` body where `image` is optional (URL or uploaded file). */
+function optionalMultipartBody(fields: Record<string, any>, description: string) {
+  return {
+    description,
+    required: false,
+    content: {
+      "multipart/form-data": {
+        schema: {
+          type: "object",
+          properties: fields,
+        },
+      },
+    },
+  };
+}
+
+const SUPER_SECURITY = [{ SuperAdminAuth: [] }];
+const TENANT_SECURITY = [{ TenantAuth: [] }, { TenantSubdomain: [] }];
+
+/** Adds an operation without overwriting an already documented one. */
+function addOperation(
+  paths: Record<string, any>,
+  key: string,
+  method: string,
+  operation: Record<string, any>
+) {
+  paths[key] = paths[key] ?? {};
+  paths[key][method] = paths[key][method] ?? operation;
+}
+
+/** Documents both bulk-delete aliases (`POST .../bulk-delete` and `DELETE .../bulk`). */
+function addBulkDelete(
+  paths: Record<string, any>,
+  base: string,
+  tag: string,
+  entity: string,
+  security: any[],
+  ids: string[]
+) {
+  const example = {
+    success: true,
+    message: `${ids.length} ${entity.toLowerCase()}(s) deleted successfully`,
+    data: { deletedCount: ids.length },
+  };
+
+  const responses = {
+    200: {
+      description: "Deleted documents count",
+      content: { "application/json": { example } },
+    },
+    400: { $ref: "#/components/responses/BadRequest" },
+    401: { $ref: "#/components/responses/Unauthorized" },
+  };
+
+  addOperation(paths, `${base}/bulk-delete`, "post", {
+    tags: [tag],
+    summary: `Bulk Delete ${entity}s`,
+    description: "Deletes every document whose id is in `ids`.",
+    security,
+    requestBody: jsonBody({ ids }),
+    responses,
+  });
+
+  addOperation(paths, `${base}/bulk`, "delete", {
+    tags: [tag],
+    summary: `Bulk Delete ${entity}s (alias)`,
+    description: "Same handler as `POST " + `${base}/bulk-delete` + "`, kept for clients that prefer `DELETE`.",
+    security,
+    requestBody: jsonBody({ ids }),
+    responses,
+  });
+}
+
+/** Documents a `GET .../select` dropdown endpoint. */
+function addSelect(
+  paths: Record<string, any>,
+  base: string,
+  tag: string,
+  summary: string,
+  dataKey: string,
+  security: any[],
+  example: any[],
+  parameters: any[] = []
+) {
+  addOperation(paths, `${base}/select`, "get", {
+    tags: [tag],
+    summary,
+    description: "Lightweight list used to fill dropdowns/select inputs.",
+    security,
+    parameters,
+    responses: {
+      200: {
+        content: {
+          "application/json": {
+            example: { success: true, data: { [dataKey]: example } },
+          },
+        },
+      },
+    },
+  });
+}
+
 function multipartBody(field = "image", description = "Upload file (multipart/form-data)") {
   return {
     description,
@@ -118,6 +220,560 @@ function multipartBody(field = "image", description = "Upload file (multipart/fo
       },
     },
   };
+}
+
+/**
+ * Documents the endpoints that were added after the first spec draft.
+ * Kept in a single place so the diff stays readable; `addOperation` never
+ * overwrites an operation that is already documented above.
+ */
+function addMissingPaths(paths: Record<string, any>) {
+  // ---------------------------------------------------------------
+  // Super Admin - Auth
+  // ---------------------------------------------------------------
+  addOperation(paths, "/api/auth/logout", "post", {
+    tags: ["Super Admin - Auth"],
+    summary: "Super Admin Logout",
+    description: "Stateless logout. Tokens are JWTs, so the client just drops the token.",
+    security: SUPER_SECURITY,
+    responses: {
+      200: {
+        description: "Logged out",
+        content: {
+          "application/json": {
+            example: { success: true, message: "Logged out successfully" },
+          },
+        },
+      },
+      401: { $ref: "#/components/responses/Unauthorized" },
+    },
+  });
+
+  // `/api/auth/change-password` only accepts PUT (documented above).
+
+  // ---------------------------------------------------------------
+  // Super Admin - Games / Actions / Packages
+  // ---------------------------------------------------------------
+  addBulkDelete(paths, "/api/games", "Super Admin - Games", "Game", SUPER_SECURITY, [
+    "6ae2e6e0a8448da0f3c60dc0",
+    "6ae2e6e0a8448da0f3c60dc1",
+  ]);
+  addOperation(paths, "/api/games/{id}", "patch", {
+    tags: ["Super Admin - Games"],
+    summary: "Update Game (alias)",
+    description: "Same handler as `PUT /api/games/{id}`.",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({ name: "Football Pro", status: true }),
+    responses: singleResponse("game", { _id: "6ae2e6e0a8448da0f3c60dc0", name: "Football Pro" }),
+  });
+
+  addSelect(
+    paths,
+    "/api/actions",
+    "Super Admin - Actions",
+    "Select Actions (Dropdown)",
+    "actions",
+    SUPER_SECURITY,
+    [{ _id: "6ae2e6e0a8448da0f3c60dc5", name: "Goal", game_id: "6ae2e6e0a8448da0f3c60dc0" }],
+    [{ name: "game_id", in: "query", schema: { type: "string" }, description: "Filter by game ID" }]
+  );
+  addBulkDelete(paths, "/api/actions", "Super Admin - Actions", "Action", SUPER_SECURITY, [
+    "6ae2e6e0a8448da0f3c60dc5",
+  ]);
+  addOperation(paths, "/api/actions/{id}", "patch", {
+    tags: ["Super Admin - Actions"],
+    summary: "Update Action (alias)",
+    description: "Same handler as `PUT /api/actions/{id}`.",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({ name: "Goal", status: true }),
+    responses: singleResponse("action", { _id: "6ae2e6e0a8448da0f3c60dc5", name: "Goal" }),
+  });
+
+  addSelect(
+    paths,
+    "/api/packages",
+    "Super Admin - Packages",
+    "Select Packages (Dropdown)",
+    "packages",
+    SUPER_SECURITY,
+    [{ _id: "6ae2e6e0a8448da0f3c60dd0", name: "Pro Club Package" }],
+    [{ name: "game_id", in: "query", schema: { type: "string" }, description: "Filter by game ID" }]
+  );
+  addBulkDelete(paths, "/api/packages", "Super Admin - Packages", "Package", SUPER_SECURITY, [
+    "6ae2e6e0a8448da0f3c60dd0",
+  ]);
+  addOperation(paths, "/api/packages/{id}", "patch", {
+    tags: ["Super Admin - Packages"],
+    summary: "Update Package (alias)",
+    description: "Same handler as `PUT /api/packages/{id}`.",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({ name: "Pro Club Package", status: true }),
+    responses: singleResponse("package", { _id: "6ae2e6e0a8448da0f3c60dd0", name: "Pro Club Package" }),
+  });
+
+  // ---------------------------------------------------------------
+  // Super Admin - Clubs
+  // ---------------------------------------------------------------
+  addSelect(
+    paths,
+    "/api/clubs",
+    "Super Admin - Clubs",
+    "Select Clubs (Dropdown)",
+    "clubs",
+    SUPER_SECURITY,
+    [{ _id: "6ae2e6e0a8448da0f3c60de0", name: "Al Ahly SC", subdomain: "ahly" }]
+  );
+  addBulkDelete(paths, "/api/clubs", "Super Admin - Clubs", "Club", SUPER_SECURITY, [
+    "6ae2e6e0a8448da0f3c60de0",
+  ]);
+  addOperation(paths, "/api/clubs/{id}", "patch", {
+    tags: ["Super Admin - Clubs"],
+    summary: "Update Club (alias)",
+    description:
+      "Same handler as `PUT /api/clubs/{id}`. The `subdomain` is immutable once the club database exists.",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({ name: "Al Ahly Sporting Club", status: true }),
+    responses: singleResponse("club", { _id: "6ae2e6e0a8448da0f3c60de0", name: "Al Ahly Sporting Club" }),
+  });
+
+  addOperation(paths, "/api/clubs/{id}/subscription", "get", {
+    tags: ["Super Admin - Clubs"],
+    summary: "Get Club Subscription Status",
+    description:
+      "Evaluates the club subscription (active / grace / expired / pending / inactive) using the global `allowed_days` grace window.",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    responses: {
+      200: {
+        description: "Subscription details",
+        content: {
+          "application/json": {
+            example: {
+              success: true,
+              data: {
+                subscription: {
+                  status: "active",
+                  days_left: 64,
+                  grace_days_left: null,
+                  is_late_renewal: false,
+                  allowed_days: 7,
+                },
+                club: {
+                  _id: "6ae2e6e0a8448da0f3c60de0",
+                  name: "Al Ahly SC",
+                  subdomain: "ahly",
+                  status: true,
+                  start_date: "2026-01-01T00:00:00.000Z",
+                  end_date: "2027-01-01T00:00:00.000Z",
+                },
+              },
+            },
+          },
+        },
+      },
+      404: { $ref: "#/components/responses/NotFound" },
+    },
+  });
+
+  addOperation(paths, "/api/clubs/{id}/tenant/init", "post", {
+    tags: ["Super Admin - Clubs"],
+    summary: "Initialize Tenant Database",
+    description:
+      "Creates the tenant indexes, the default settings document and the first club admin. Fails with 400 when `admin_name`, `admin_email` or `admin_password` is missing.",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({
+      admin_name: "Ahly Admin",
+      admin_email: "admin@ahly.com",
+      admin_password: "Ahly@123456",
+    }),
+    responses: {
+      200: {
+        description: "Tenant initialized",
+        content: {
+          "application/json": {
+            example: {
+              success: true,
+              message: "Tenant database initialized successfully",
+              data: {
+                club: { _id: "6ae2e6e0a8448da0f3c60de0", name: "Al Ahly SC", subdomain: "ahly" },
+                database: "ahly",
+                admin: { email: "admin@ahly.com", role: "admin" },
+                collections: { team: 0, "team-players": 0, match: 0, settings: 1, admin: 1 },
+              },
+            },
+          },
+        },
+      },
+      400: { $ref: "#/components/responses/BadRequest" },
+      404: { $ref: "#/components/responses/NotFound" },
+    },
+  });
+
+  // ---------------------------------------------------------------
+  // Super Admin - Payment Methods
+  // ---------------------------------------------------------------
+  addSelect(
+    paths,
+    "/api/payment-methods",
+    "Super Admin - Payment Methods",
+    "Select Payment Methods (Dropdown)",
+    "payment_methods",
+    SUPER_SECURITY,
+    [{ _id: "6ae2e6e0a8448da0f3c60df0", name: "InstaPay" }]
+  );
+  addBulkDelete(
+    paths,
+    "/api/payment-methods",
+    "Super Admin - Payment Methods",
+    "Payment Method",
+    SUPER_SECURITY,
+    ["6ae2e6e0a8448da0f3c60df0"]
+  );
+
+  addOperation(paths, "/api/payment-methods/{id}", "get", {
+    tags: ["Super Admin - Payment Methods"],
+    summary: "Get Payment Method by ID",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    responses: singleResponse("paymentMethod", {
+      _id: "6ae2e6e0a8448da0f3c60df0",
+      name: "InstaPay",
+      status: true,
+      description: "Transfer to instapay address: scouting@instapay",
+      icon: "https://sportego.org/uploads/instapay.png",
+    }),
+  });
+
+  const paymentMethodMultipart = optionalMultipartBody(
+    {
+      name: { type: "string", example: "InstaPay" },
+      status: { type: "boolean", example: true },
+      description: { type: "string", example: "Send to scouting@instapay" },
+      icon: {
+        type: "string",
+        description: "Icon URL. Alternatively upload a file in the `icon` field.",
+        example: "https://sportego.org/uploads/instapay.png",
+      },
+    },
+    "Send as `multipart/form-data` when uploading an icon file, otherwise `application/json`."
+  );
+
+  addOperation(paths, "/api/payment-methods/{id}", "put", {
+    tags: ["Super Admin - Payment Methods"],
+    summary: "Update Payment Method",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    requestBody: paymentMethodMultipart,
+    responses: singleResponse("paymentMethod", { name: "InstaPay", status: true }),
+  });
+  addOperation(paths, "/api/payment-methods/{id}", "patch", {
+    tags: ["Super Admin - Payment Methods"],
+    summary: "Update Payment Method (alias)",
+    description: "Same handler as `PUT /api/payment-methods/{id}`.",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    requestBody: paymentMethodMultipart,
+    responses: singleResponse("paymentMethod", { name: "InstaPay", status: true }),
+  });
+  addOperation(paths, "/api/payment-methods/{id}", "delete", {
+    tags: ["Super Admin - Payment Methods"],
+    summary: "Delete Payment Method",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    responses: singleResponse("id", "6ae2e6e0a8448da0f3c60df0", 200, "Payment method deleted successfully"),
+  });
+
+  // ---------------------------------------------------------------
+  // Super Admin - Orders
+  // ---------------------------------------------------------------
+  addBulkDelete(paths, "/api/orders", "Super Admin - Orders & Invoices", "Order", SUPER_SECURITY, [
+    "6ae2e88d1540b80d32644b80",
+  ]);
+
+  addOperation(paths, "/api/orders/{id}", "put", {
+    tags: ["Super Admin - Orders & Invoices"],
+    summary: "Update Order",
+    description: "Accepts `multipart/form-data` when a new `payment_proof` file is attached.",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    requestBody: optionalMultipartBody(
+      {
+        price: { type: "number", example: 5000 },
+        discount: { type: "number", example: 500 },
+        fine: { type: "number", example: 0 },
+        status: {
+          type: "string",
+          enum: ["pending", "paid", "rejected", "cancelled", "refunded"],
+        },
+        payment_proof: { type: "string", format: "binary", description: "Optional new receipt image" },
+        paid_at: { type: "string", format: "date-time" },
+        notes: { type: "string" },
+      },
+      "At least one field is required."
+    ),
+    responses: singleResponse("order", {
+      _id: "6ae2e88d1540b80d32644b80",
+      status: "pending",
+      final_price: 4500,
+    }),
+  });
+  addOperation(paths, "/api/orders/{id}", "patch", {
+    tags: ["Super Admin - Orders & Invoices"],
+    summary: "Update Order (alias)",
+    description: "Same handler as `PUT /api/orders/{id}`.",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({ notes: "Called the club to confirm the transfer" }),
+    responses: singleResponse("order", { _id: "6ae2e88d1540b80d32644b80", status: "pending" }),
+  });
+  addOperation(paths, "/api/orders/{id}", "delete", {
+    tags: ["Super Admin - Orders & Invoices"],
+    summary: "Delete Order",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    responses: singleResponse("id", "6ae2e88d1540b80d32644b80", 200, "Order deleted successfully"),
+  });
+
+  addOperation(paths, "/api/orders/{id}/status", "patch", {
+    tags: ["Super Admin - Orders & Invoices"],
+    summary: "Change Order Status",
+    description:
+      "Low-level status change. Prefer `POST /api/orders/{id}/approve` or `/reject`, which also update the club subscription.",
+    security: SUPER_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({ status: "paid" }),
+    responses: singleResponse("order", { _id: "6ae2e88d1540b80d32644b80", status: "paid" }),
+  });
+
+  // ---------------------------------------------------------------
+  // Super Admin - Settings
+  // ---------------------------------------------------------------
+  addOperation(paths, "/api/settings", "patch", {
+    tags: ["Super Admin - Settings"],
+    summary: "Update Global Settings (alias)",
+    description: "Same handler as `PUT /api/settings`.",
+    security: SUPER_SECURITY,
+    requestBody: jsonBody({ allowed_days: 14, notification: true, fines: 500 }),
+    responses: singleResponse("settings", { allowed_days: 14, notification: true, fines: 500 }),
+  });
+
+  // ---------------------------------------------------------------
+  // Tenant - Auth
+  // ---------------------------------------------------------------
+  addOperation(paths, "/api/tenant/auth/logout", "post", {
+    tags: ["Tenant - Auth"],
+    summary: "Club Member Logout",
+    description: "Stateless logout; the client drops the tenant token.",
+    security: TENANT_SECURITY,
+    responses: {
+      200: {
+        description: "Logged out",
+        content: {
+          "application/json": {
+            example: { success: true, message: "Logged out successfully" },
+          },
+        },
+      },
+      401: { $ref: "#/components/responses/Unauthorized" },
+    },
+  });
+
+  addOperation(paths, "/api/tenant/auth/change-password", "patch", {
+    tags: ["Tenant - Auth"],
+    summary: "Change Tenant Password (alias)",
+    description:
+      "Same handler as `PUT /api/tenant/auth/change-password`. Changing the password revokes every previously issued tenant token (`password_version`).",
+    security: TENANT_SECURITY,
+    requestBody: jsonBody({
+      current_password: "Tenant@123456",
+      new_password: "NewTenant@123456",
+    }),
+    responses: singleResponse("admin", { email: "admin@ahly.com" }, 200, "Password changed successfully"),
+  });
+
+  // ---------------------------------------------------------------
+  // Tenant - Cart
+  // ---------------------------------------------------------------
+  addBulkDelete(paths, "/api/tenant/cart", "Tenant - Cart & Checkout", "Cart Item", TENANT_SECURITY, [
+    "6ae2e88d1540b80d32644b57",
+  ]);
+
+  addOperation(paths, "/api/tenant/cart/{id}", "get", {
+    tags: ["Tenant - Cart & Checkout"],
+    summary: "Get Cart Item",
+    security: TENANT_SECURITY,
+    parameters: idParam(),
+    responses: singleResponse("cart", {
+      _id: "6ae2e88d1540b80d32644b57",
+      status: "cart",
+      final_price: 4500,
+    }),
+  });
+  addOperation(paths, "/api/tenant/cart/{id}", "put", {
+    tags: ["Tenant - Cart & Checkout"],
+    summary: "Update Cart Item",
+    security: TENANT_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({
+      package_id: "6ae2e6e0a8448da0f3c60dd0",
+      cycle_id: "6ae2e6e0a8448da0f3c60dd2",
+      notes: "Switched to the annual cycle",
+    }),
+    responses: singleResponse("cart", { _id: "6ae2e88d1540b80d32644b57", final_price: 14400 }),
+  });
+  addOperation(paths, "/api/tenant/cart/{id}", "patch", {
+    tags: ["Tenant - Cart & Checkout"],
+    summary: "Update Cart Item (alias)",
+    description: "Same handler as `PUT /api/tenant/cart/{id}`.",
+    security: TENANT_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({ notes: "Please call before 5pm" }),
+    responses: singleResponse("cart", { _id: "6ae2e88d1540b80d32644b57" }),
+  });
+  addOperation(paths, "/api/tenant/cart/{id}", "delete", {
+    tags: ["Tenant - Cart & Checkout"],
+    summary: "Remove Cart Item",
+    security: TENANT_SECURITY,
+    parameters: idParam(),
+    responses: singleResponse("id", "6ae2e88d1540b80d32644b57", 200, "Cart item deleted successfully"),
+  });
+
+  addOperation(paths, "/api/tenant/cart/{id}/payment-proof", "post", {
+    tags: ["Tenant - Cart & Checkout"],
+    summary: "Upload Payment Proof for a Cart Item",
+    security: TENANT_SECURITY,
+    parameters: idParam(),
+    requestBody: multipartBody("payment_proof"),
+    responses: singleResponse("cart", {
+      _id: "6ae2e88d1540b80d32644b57",
+      payment_proof: "/uploads/proof-club-123.png",
+    }),
+  });
+
+  // ---------------------------------------------------------------
+  // Tenant - Bulk deletes & PATCH aliases
+  // ---------------------------------------------------------------
+  addBulkDelete(paths, "/api/tenant/teams", "Tenant - Teams", "Team", TENANT_SECURITY, [
+    "6ae2e88d1540b80d32644ad1",
+  ]);
+  addBulkDelete(paths, "/api/tenant/players", "Tenant - Players", "Player", TENANT_SECURITY, [
+    "6ae2e88d1540b80d32644ae7",
+  ]);
+  addBulkDelete(paths, "/api/tenant/matches", "Tenant - Matches", "Match", TENANT_SECURITY, [
+    "6ae2e88d1540b80d32644b00",
+  ]);
+  addBulkDelete(
+    paths,
+    "/api/tenant/player-progress",
+    "Tenant - Player Progress",
+    "Player Progress",
+    TENANT_SECURITY,
+    ["6ae2e88d1540b80d32644b20"]
+  );
+  addBulkDelete(paths, "/api/tenant/admins", "Tenant - Sub-Admins", "Admin", TENANT_SECURITY, [
+    "6ae2e6e0a8448da0f3c60de9",
+  ]);
+  addSelect(
+    paths,
+    "/api/tenant/admins",
+    "Tenant - Sub-Admins",
+    "Select Club Admins (Dropdown)",
+    "admins",
+    TENANT_SECURITY,
+    [{ _id: "6ae2e6e0a8448da0f3c60de9", name: "Coach Hossam", role: "coach" }]
+  );
+
+  addOperation(paths, "/api/tenant/player-progress/{id}", "get", {
+    tags: ["Tenant - Player Progress"],
+    summary: "Get Player Action Event",
+    security: TENANT_SECURITY,
+    parameters: idParam(),
+    responses: singleResponse("player_progress", {
+      _id: "6ae2e88d1540b80d32644b20",
+      match_id: "6ae2e88d1540b80d32644b00",
+      player_id: "6ae2e88d1540b80d32644ae7",
+      action_id: "6ae2e6e0a8448da0f3c60dc5",
+    }),
+  });
+
+  addOperation(paths, "/api/tenant/settings", "patch", {
+    tags: ["Tenant - Settings & Branding"],
+    summary: "Update Club Branding (alias)",
+    description: "Same handler as `PUT /api/tenant/settings`.",
+    security: TENANT_SECURITY,
+    requestBody: jsonBody({ background_color: ["#e11d48"], color: ["#ffffff"] }),
+    responses: singleResponse("settings", { background_color: ["#e11d48"] }),
+  });
+
+  addOperation(paths, "/api/tenant/teams/{id}", "patch", {
+    tags: ["Tenant - Teams"],
+    summary: "Update Team (alias)",
+    description: "Same handler as `PUT /api/tenant/teams/{id}`.",
+    security: TENANT_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({ name: "Senior Football Team" }),
+    responses: singleResponse("team", { name: "Senior Football Team" }),
+  });
+
+  addOperation(paths, "/api/tenant/players/{id}", "patch", {
+    tags: ["Tenant - Players"],
+    summary: "Update Player (alias)",
+    description: "Same handler as `PUT /api/tenant/players/{id}`.",
+    security: TENANT_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({ weight: 72 }),
+    responses: singleResponse("player", { name: "Mohamed Salah", weight: 72 }),
+  });
+
+  addOperation(paths, "/api/tenant/matches/{id}", "patch", {
+    tags: ["Tenant - Matches"],
+    summary: "Update Match (alias)",
+    description: "Same handler as `PUT /api/tenant/matches/{id}`.",
+    security: TENANT_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({ name: "Cup Final Match" }),
+    responses: singleResponse("match", { name: "Cup Final Match" }),
+  });
+
+  addOperation(paths, "/api/tenant/player-progress/{id}", "put", {
+    tags: ["Tenant - Player Progress"],
+    summary: "Update Player Action Event",
+    security: TENANT_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({
+      match_id: "6ae2e88d1540b80d32644b00",
+      player_id: "6ae2e88d1540b80d32644ae7",
+      action_id: "6ae2e6e0a8448da0f3c60dc5",
+    }),
+    responses: singleResponse("player_progress", {
+      _id: "6ae2e88d1540b80d32644b21",
+      action_id: "6ae2e6e0a8448da0f3c60dc5",
+    }),
+  });
+  addOperation(paths, "/api/tenant/player-progress/{id}", "patch", {
+    tags: ["Tenant - Player Progress"],
+    summary: "Update Player Action Event (alias)",
+    description: "Same handler as `PUT /api/tenant/player-progress/{id}`.",
+    security: TENANT_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({ action_id: "6ae2e6e0a8448da0f3c60dc5" }),
+    responses: singleResponse("player_progress", { _id: "6ae2e88d1540b80d32644b21" }),
+  });
+
+  addOperation(paths, "/api/tenant/admins/{id}", "patch", {
+    tags: ["Tenant - Sub-Admins"],
+    summary: "Update Sub-Admin (alias)",
+    description: "Same handler as `PUT /api/tenant/admins/{id}`.",
+    security: TENANT_SECURITY,
+    parameters: idParam(),
+    requestBody: jsonBody({ role: "viewer", status: false }),
+    responses: singleResponse("admin", { email: "hossam@ahly.com", role: "viewer", status: false }),
+  });
 }
 
 export function buildOpenApiSpec() {
@@ -578,15 +1234,20 @@ export function buildOpenApiSpec() {
     post: {
       tags: ["Super Admin - Clubs"],
       summary: "Create Club / Tenant",
-      description: "Registers a new club and provisions its isolated database with initial admin and settings",
+      description:
+        "Registers a new club, provisions its isolated database and creates the first club admin in the same call. `admin_name`, `admin_email` and `admin_password` are required.",
       security: [{ SuperAdminAuth: [] }],
       requestBody: jsonBody({
         name: "Zamalek SC",
         subdomain: "zamalek",
         package_id: "6ae2e6e0a8448da0f3c60dd0",
+        cycle_id: "6ae2e6e0a8448da0f3c60dd2",
         start_date: "2026-10-01T00:00:00.000Z",
         end_date: "2027-10-01T00:00:00.000Z",
         status: true,
+        admin_name: "Zamalek Admin",
+        admin_email: "admin@zamalek.com",
+        admin_password: "Zamalek@123456",
       }),
       responses: singleResponse("club", {
         _id: "6ae2e6e0a8448da0f3c60de1",
@@ -708,12 +1369,22 @@ export function buildOpenApiSpec() {
     post: {
       tags: ["Super Admin - Payment Methods"],
       summary: "Create Payment Method",
+      description:
+        "Accepts `multipart/form-data` with an `icon` image file, or JSON where `icon` is a URL.",
       security: [{ SuperAdminAuth: [] }],
-      requestBody: jsonBody({
-        name: "Vodafone Cash",
-        status: true,
-        description: "Send wallet transfer to 01012345678",
-      }),
+      requestBody: optionalMultipartBody(
+        {
+          name: { type: "string", example: "Vodafone Cash" },
+          status: { type: "boolean", example: true },
+          description: { type: "string", example: "Send wallet transfer to 01012345678" },
+          icon: {
+            type: "string",
+            description: "Icon URL, or upload the image in the `icon` field",
+            example: "https://sportego.org/uploads/vodafone.png",
+          },
+        },
+        "Provide `icon` as a URL or as an uploaded file."
+      ),
       responses: singleResponse("paymentMethod", { _id: "6ae2e6e0a8448da0f3c60df1", name: "Vodafone Cash" }, 201),
     },
   };
@@ -751,6 +1422,8 @@ export function buildOpenApiSpec() {
     post: {
       tags: ["Super Admin - Orders & Invoices"],
       summary: "Create Order (Manual Entry)",
+      description:
+        "Creates a pending order on behalf of a club. `payment_proof` can be sent as a URL or as an uploaded file (`multipart/form-data`). New orders stay `pending` until a super admin approves them.",
       security: [{ SuperAdminAuth: [] }],
       requestBody: jsonBody({
         club_id: "6ae2e6e0a8448da0f3c60de0",
@@ -760,7 +1433,9 @@ export function buildOpenApiSpec() {
         price: 5000,
         discount: 500,
         fine: 0,
-        status: "pending",
+        payment_proof: "/uploads/proof-12345.png",
+        paid_at: "2026-10-29T08:00:00.000Z",
+        notes: "Paid by bank transfer",
       }),
       responses: singleResponse("order", { _id: "6ae2e88d1540b80d32644b80", order_number: "ORD-2026-000002" }, 201),
     },
@@ -812,19 +1487,8 @@ export function buildOpenApiSpec() {
     },
   };
 
-  paths["/api/orders/{id}/payment-proof"] = {
-    post: {
-      tags: ["Super Admin - Orders & Invoices"],
-      summary: "Upload Order Payment Proof Receipt",
-      security: [{ SuperAdminAuth: [] }],
-      parameters: idParam(),
-      requestBody: multipartBody("image"),
-      responses: singleResponse("order", {
-        _id: "6ae2e88d1540b80d32644b80",
-        payment_proof: "/uploads/proof-1234.png",
-      }),
-    },
-  };
+  // Payment proofs are attached through `PUT/PATCH /api/orders/{id}`
+  // (multipart/form-data with a `payment_proof` file or URL).
 
   paths["/api/orders/{id}/invoice"] = {
     get: {
@@ -951,9 +1615,10 @@ export function buildOpenApiSpec() {
         {
           name: "x-subdomain",
           in: "header",
-          required: true,
+          required: false,
           schema: { type: "string", example: "ahly" },
-          description: "Club subdomain identifier",
+          description:
+            "Club subdomain. Optional when the request already targets `ahly.sportego.org`.",
         },
       ],
       requestBody: jsonBody({
@@ -1770,29 +2435,54 @@ export function buildOpenApiSpec() {
     },
   };
 
+  addMissingPaths(paths);
+
   return {
     openapi: "3.0.3",
     info: {
       title: "Scouting Platform API (Super Admin & Multi-Tenant Clubs)",
       version: "1.0.0",
-      description: `Complete API specification for the Scouting Multi-Tenant Platform.\n\nReady for direct import into **ApiDog**, **Postman**, or Swagger UI.`,
+      description: [
+        "Complete API specification for the Scouting multi-tenant platform.",
+        "",
+        "## Hosts",
+        "",
+        "| Host | Serves |",
+        "|---|---|",
+        "| `sportego.org` | Super Admin API |",
+        "| `admin.sportego.org`, `api.sportego.org`, `www.sportego.org` | Super Admin API (reserved labels) |",
+        "| `<club>.sportego.org` | Tenant API of that club (e.g. `ahly.sportego.org`) |",
+        "",
+        "The tenant is the **first label before the dot**: `ahly.sportego.org` -> club `ahly` -> MongoDB database `ahly`.",
+        "Every club owns a separate database, and a token issued for one club is rejected by another.",
+        "",
+        "Super Admin routes (`/api/auth`, `/api/clubs`, ...) are reachable from the apex and from the reserved hosts only;",
+        "a request from a tenant host such as `ahly.sportego.org/api/clubs` returns **403**.",
+        "",
+        "`/api/tenant/*` also accepts the `x-subdomain` header or the `?subdomain=` query parameter,",
+        "which is what the local development server and mobile clients use.",
+      ].join("\n"),
     },
     servers: [
       {
         url: "http://localhost:4000",
-        description: "Local Development Server (Use 'x-subdomain' header for tenant routes)",
+        description: "Local Development Server (use 'x-subdomain' header or ?subdomain= for tenant routes)",
       },
       {
         url: "https://sportego.org",
-        description: "Production Server (sportego.org)",
+        description: "Production - Super Admin (apex domain)",
+      },
+      {
+        url: "https://admin.sportego.org",
+        description: "Production - Super Admin (admin subdomain)",
       },
       {
         url: "https://{subdomain}.sportego.org",
-        description: "Tenant Club Production Host (Wildcard subdomain)",
+        description: "Production - Tenant Club (wildcard subdomain)",
         variables: {
           subdomain: {
             default: "ahly",
-            description: "Club subdomain identifier",
+            description: "Club subdomain identifier (also the database name)",
           },
         },
       },
@@ -1815,7 +2505,8 @@ export function buildOpenApiSpec() {
           type: "apiKey",
           in: "header",
           name: "x-subdomain",
-          description: "Subdomain of the club (e.g. 'ahly'). Required for /api/tenant/* routes when developing on localhost.",
+          description:
+            "Club subdomain (e.g. 'ahly'). Optional in production: the tenant is taken from the host (`ahly.sportego.org`). Required on localhost or when calling the API from the apex domain.",
         },
       },
       schemas: {
@@ -1895,7 +2586,12 @@ export function generateAllSpecs(targetDir: string) {
     info: {
       title: "Scouting Super Admin API",
       version: "1.0.0",
-      description: "API for Super Admin managing Games, Actions, Packages, Clubs, Orders, Invoices, and Platform Settings.",
+      description: [
+        "API for the platform super admin (games, actions, packages, clubs, orders, invoices, settings).",
+        "",
+        "Served from `sportego.org` and from the reserved hosts `admin.sportego.org`, `api.sportego.org` and `www.sportego.org`.",
+        "Requests coming from a tenant host (e.g. `ahly.sportego.org/api/clubs`) are rejected with **403**.",
+      ].join("\n"),
     },
     paths: superAdminPaths,
   };
@@ -1915,7 +2611,14 @@ export function generateAllSpecs(targetDir: string) {
     info: {
       title: "Scouting Tenant Club API",
       version: "1.0.0",
-      description: "API for Club Tenant managing Team Roster, Players, Matches, Scouting Progress, Subscriptions, Packages, and Invoices.",
+      description: [
+        "API for a club tenant (team roster, players, matches, scouting progress, subscription, packages, invoices).",
+        "",
+        "Each club is served from its own host: `ahly.sportego.org` -> club `ahly` -> MongoDB database `ahly`.",
+        "The tenant is the first label before the dot, and every club has an isolated database.",
+        "",
+        "On localhost, send the `x-subdomain` header or `?subdomain=ahly` instead of using a subdomain.",
+      ].join("\n"),
     },
     paths: tenantPaths,
   };

@@ -2,25 +2,29 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Scouting Super Admin API",
-    "version": "1.2.0",
-    "description": "API for Super Admin managing Games, Actions, Packages, Clubs, Orders, Invoices, and Platform Settings."
+    "version": "1.0.0",
+    "description": "API for the platform super admin (games, actions, packages, clubs, orders, invoices, settings).\n\nServed from `sportego.org` and from the reserved hosts `admin.sportego.org`, `api.sportego.org` and `www.sportego.org`.\nRequests coming from a tenant host (e.g. `ahly.sportego.org/api/clubs`) are rejected with **403**."
   },
   "servers": [
     {
       "url": "http://localhost:4000",
-      "description": "Local Development Server (Use 'x-subdomain' header for tenant routes)"
+      "description": "Local Development Server (use 'x-subdomain' header or ?subdomain= for tenant routes)"
     },
     {
       "url": "https://sportego.org",
-      "description": "Production Server (sportego.org)"
+      "description": "Production - Super Admin (apex domain)"
+    },
+    {
+      "url": "https://admin.sportego.org",
+      "description": "Production - Super Admin (admin subdomain)"
     },
     {
       "url": "https://{subdomain}.sportego.org",
-      "description": "Tenant Club Production Host (Wildcard subdomain)",
+      "description": "Production - Tenant Club (wildcard subdomain)",
       "variables": {
         "subdomain": {
           "default": "ahly",
-          "description": "Club subdomain identifier"
+          "description": "Club subdomain identifier (also the database name)"
         }
       }
     }
@@ -43,115 +47,36 @@
         "type": "apiKey",
         "in": "header",
         "name": "x-subdomain",
-        "description": "Subdomain of the club (e.g. 'ahly'). Required for /api/tenant/* routes when developing on localhost."
-      }
-    },
-    "parameters": {
-      "PageParam": {
-        "name": "page",
-        "in": "query",
-        "schema": { "type": "integer", "default": 1 },
-        "description": "Page number"
-      },
-      "LimitParam": {
-        "name": "limit",
-        "in": "query",
-        "schema": { "type": "integer", "default": 10 },
-        "description": "Items per page (max 100)"
-      },
-      "SearchParam": {
-        "name": "search",
-        "in": "query",
-        "schema": { "type": "string" },
-        "description": "Keyword search"
-      },
-      "SortByParam": {
-        "name": "sort_by",
-        "in": "query",
-        "schema": { "type": "string", "default": "createdAt" },
-        "description": "Field to sort by"
-      },
-      "OrderParam": {
-        "name": "order",
-        "in": "query",
-        "schema": {
-          "type": "string",
-          "enum": ["asc", "desc"],
-          "default": "desc"
-        },
-        "description": "Sort direction"
-      },
-      "StatusBoolParam": {
-        "name": "status",
-        "in": "query",
-        "schema": { "type": "boolean" },
-        "description": "Filter by active status (true/false)"
-      },
-      "MongoIdPath": {
-        "name": "id",
-        "in": "path",
-        "required": true,
-        "schema": { "type": "string", "example": "6ae2e6e0a8448da0f3c60dc0" },
-        "description": "MongoDB ObjectId of the resource"
-      },
-      "GameIdQuery": {
-        "name": "game_id",
-        "in": "query",
-        "schema": { "type": "string" },
-        "description": "Filter by game ID"
+        "description": "Club subdomain (e.g. 'ahly'). Optional in production: the tenant is taken from the host (`ahly.sportego.org`). Required on localhost or when calling the API from the apex domain."
       }
     },
     "schemas": {
       "PaginationMeta": {
         "type": "object",
         "properties": {
-          "total": { "type": "integer", "example": 45 },
-          "page": { "type": "integer", "example": 1 },
-          "limit": { "type": "integer", "example": 10 },
-          "totalPages": { "type": "integer", "example": 5 },
-          "hasNextPage": { "type": "boolean", "example": true },
-          "hasPrevPage": { "type": "boolean", "example": false }
-        }
-      },
-      "SubscriptionState": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": ["active", "grace", "expired", "pending", "inactive"]
-          },
-          "days_left": { "type": "integer", "nullable": true, "example": 64 },
-          "grace_days_left": {
+          "total": {
             "type": "integer",
-            "nullable": true,
-            "example": null
+            "example": 45
           },
-          "is_late_renewal": { "type": "boolean", "example": false }
-        }
-      },
-      "PackageCycle": {
-        "type": "object",
-        "properties": {
-          "_id": { "type": "string", "example": "6ae2e6e0a8448da0f3c60dd1" },
-          "name": { "type": "string", "example": "Quarterly (3 Months)" },
-          "months": { "type": "integer", "example": 3 },
-          "price": { "type": "number", "example": 5000 },
-          "discount": { "type": "number", "example": 10 },
-          "discount_type": {
-            "type": "string",
-            "enum": ["percentage", "amount"],
-            "example": "percentage"
-          }
-        }
-      },
-      "BulkDeleteBody": {
-        "type": "object",
-        "required": ["ids"],
-        "properties": {
-          "ids": {
-            "type": "array",
-            "items": { "type": "string" },
-            "example": ["6ae2e6e0a8448da0f3c60dc0", "6ae2e6e0a8448da0f3c60dc1"]
+          "page": {
+            "type": "integer",
+            "example": 1
+          },
+          "limit": {
+            "type": "integer",
+            "example": 10
+          },
+          "totalPages": {
+            "type": "integer",
+            "example": 5
+          },
+          "hasNextPage": {
+            "type": "boolean",
+            "example": true
+          },
+          "hasPrevPage": {
+            "type": "boolean",
+            "example": false
           }
         }
       }
@@ -167,7 +92,12 @@
                 "code": 400,
                 "message": "Validation error",
                 "details": [
-                  { "path": ["email"], "message": "Invalid email address" }
+                  {
+                    "path": [
+                      "email"
+                    ],
+                    "message": "Invalid email address"
+                  }
                 ]
               }
             }
@@ -194,7 +124,10 @@
           "application/json": {
             "example": {
               "success": false,
-              "error": { "code": 404, "message": "Resource not found" }
+              "error": {
+                "code": 404,
+                "message": "Resource not found"
+              }
             }
           }
         }
@@ -204,8 +137,11 @@
   "paths": {
     "/health": {
       "get": {
-        "tags": ["General"],
+        "tags": [
+          "General"
+        ],
         "summary": "Health Check",
+        "description": "Checks server status, uptime, and database connectivity",
         "responses": {
           "200": {
             "description": "Server is healthy",
@@ -229,9 +165,13 @@
     },
     "/api/auth/login": {
       "post": {
-        "tags": ["Super Admin - Auth"],
+        "tags": [
+          "Super Admin - Auth"
+        ],
         "summary": "Super Admin Login",
+        "description": "Authenticates super admin and returns Bearer JWT token",
         "requestBody": {
+          "description": "Request Payload",
           "required": true,
           "content": {
             "application/json": {
@@ -266,44 +206,79 @@
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
     "/api/auth/me": {
       "get": {
-        "tags": ["Super Admin - Auth"],
+        "tags": [
+          "Super Admin - Auth"
+        ],
         "summary": "Get Current Super Admin Profile",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "admin": {
-                      "id": "6ae2e6e0a8448da0f3c60dc0",
-                      "name": "Super Admin",
-                      "email": "admin@scouting.local",
-                      "role": "super_admin"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "admin": {
+                          "type": "object",
+                          "example": {
+                            "id": "6ae2e6e0a8448da0f3c60dc0",
+                            "name": "Super Admin",
+                            "email": "admin@scouting.local",
+                            "role": "super_admin"
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
         }
       }
     },
     "/api/auth/change-password": {
       "put": {
-        "tags": ["Super Admin - Auth"],
+        "tags": [
+          "Super Admin - Auth"
+        ],
         "summary": "Change Super Admin Password",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "requestBody": {
+          "description": "Request Payload",
           "required": true,
           "content": {
             "application/json": {
@@ -322,30 +297,67 @@
             "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "message": "Password changed successfully",
-                  "data": {}
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Password changed successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "admin": {
+                          "type": "object",
+                          "example": {
+                            "id": "6ae2e6e0a8448da0f3c60dc0",
+                            "email": "admin@scouting.local"
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
         }
       }
     },
     "/api/dashboard": {
       "get": {
-        "tags": ["Super Admin - Dashboard"],
+        "tags": [
+          "Super Admin - Dashboard"
+        ],
         "summary": "Get Platform Dashboard Analytics",
-        "security": [{ "SuperAdminAuth": [] }],
+        "description": "Returns platform wide stats, active clubs, subscription statuses, orders, and revenue chart",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "parameters": [
           {
             "name": "months",
             "in": "query",
-            "schema": { "type": "integer", "default": 12 },
-            "description": "Number of months (1-24)"
+            "schema": {
+              "type": "integer",
+              "default": 12
+            },
+            "description": "Number of months for revenue breakdown (1-24)"
           }
         ],
         "responses": {
@@ -377,13 +389,30 @@
                       "inactive": 0
                     },
                     "monthly_revenue": [
-                      { "month": "2026-08", "total": 18000, "count": 3 }
+                      {
+                        "month": "2026-08",
+                        "total": 18000,
+                        "count": 3
+                      },
+                      {
+                        "month": "2026-09",
+                        "total": 22000,
+                        "count": 4
+                      },
+                      {
+                        "month": "2026-10",
+                        "total": 28500,
+                        "count": 5
+                      }
                     ],
                     "recent_orders": [
                       {
                         "_id": "6ae2e88d1540b80d32644b80",
                         "order_number": "ORD-2026-000015",
-                        "club": { "name": "Al Ahly SC", "subdomain": "ahly" },
+                        "club": {
+                          "name": "Al Ahly SC",
+                          "subdomain": "ahly"
+                        },
                         "final_price": 15000,
                         "status": "paid"
                       }
@@ -398,91 +427,200 @@
     },
     "/api/games": {
       "get": {
-        "tags": ["Super Admin - Games"],
+        "tags": [
+          "Super Admin - Games"
+        ],
         "summary": "List Games",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/PageParam" },
-          { "$ref": "#/components/parameters/LimitParam" },
-          { "$ref": "#/components/parameters/SearchParam" },
-          { "$ref": "#/components/parameters/SortByParam" },
-          { "$ref": "#/components/parameters/OrderParam" },
-          { "$ref": "#/components/parameters/StatusBoolParam" }
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "description": "Page number"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Items per page (max 100)"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyword search"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "createdAt"
+            },
+            "description": "Field to sort by"
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            },
+            "description": "Sort direction"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Filter by active status (true/false)"
+          }
         ],
         "responses": {
           "200": {
             "description": "Paginated list result",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "items": [
-                      {
-                        "_id": "6ae2e6e0a8448da0f3c60dc0",
-                        "name": "Football",
-                        "status": true,
-                        "createdAt": "2026-10-01T10:00:00.000Z"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          },
+                          "example": [
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dc0",
+                              "name": "Football",
+                              "status": true,
+                              "createdAt": "2026-10-01T10:00:00.000Z"
+                            }
+                          ]
+                        },
+                        "pagination": {
+                          "$ref": "#/components/schemas/PaginationMeta"
+                        }
                       }
-                    ],
-                    "pagination": {
-                      "total": 45,
-                      "page": 1,
-                      "limit": 10,
-                      "totalPages": 5,
-                      "hasNextPage": true,
-                      "hasPrevPage": false
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": ["Super Admin - Games"],
-        "summary": "Create Game",
-        "security": [{ "SuperAdminAuth": [] }],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "example": { "name": "Basketball", "status": true }
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Game created",
-            "content": {
-              "application/json": {
-                "example": {
-                  "success": true,
-                  "message": "Game created successfully",
-                  "data": {
-                    "game": {
-                      "_id": "6ae2e6e0a8448da0f3c60dc1",
-                      "name": "Basketball",
-                      "status": true
                     }
                   }
                 }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Super Admin - Games"
+        ],
+        "summary": "Create Game",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "name": "Basketball",
+                  "status": true
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Game created successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "game": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60dc1",
+                            "name": "Basketball",
+                            "status": true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
         }
       }
     },
     "/api/games/select": {
       "get": {
-        "tags": ["Super Admin - Games"],
+        "tags": [
+          "Super Admin - Games"
+        ],
         "summary": "Select Games (Dropdown)",
-        "security": [{ "SuperAdminAuth": [] }],
+        "description": "Returns lightweight active games array for dropdowns",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -490,8 +628,15 @@
                 "example": {
                   "success": true,
                   "data": {
-                    "items": [
-                      { "_id": "6ae2e6e0a8448da0f3c60dc0", "name": "Football" }
+                    "games": [
+                      {
+                        "_id": "6ae2e6e0a8448da0f3c60dc0",
+                        "name": "Football"
+                      },
+                      {
+                        "_id": "6ae2e6e0a8448da0f3c60dc1",
+                        "name": "Basketball"
+                      }
                     ]
                   }
                 }
@@ -503,42 +648,101 @@
     },
     "/api/games/{id}": {
       "get": {
-        "tags": ["Super Admin - Games"],
+        "tags": [
+          "Super Admin - Games"
+        ],
         "summary": "Get Game by ID",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "game": {
-                      "_id": "6ae2e6e0a8448da0f3c60dc0",
-                      "name": "Football",
-                      "status": true
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "game": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60dc0",
+                            "name": "Football",
+                            "status": true
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       },
       "put": {
-        "tags": ["Super Admin - Games"],
+        "tags": [
+          "Super Admin - Games"
+        ],
         "summary": "Update Game",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "requestBody": {
+          "description": "Request Payload",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "example": { "name": "Football Pro", "status": true }
+                "example": {
+                  "name": "Football Pro",
+                  "status": true
+                }
               }
             }
           }
@@ -548,32 +752,70 @@
             "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "game": {
-                      "_id": "6ae2e6e0a8448da0f3c60dc0",
-                      "name": "Football Pro",
-                      "status": true
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "game": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60dc0",
+                            "name": "Football Pro",
+                            "status": true
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       },
       "delete": {
-        "tags": ["Super Admin - Games"],
+        "tags": [
+          "Super Admin - Games"
+        ],
         "summary": "Delete Game",
         "description": "Deletes the game and its catalog actions/packages. Fails with 409 if clubs are subscribed unless `?force=true`.",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/MongoIdPath" },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          },
           {
             "name": "force",
             "in": "query",
-            "schema": { "type": "boolean" },
+            "schema": {
+              "type": "boolean"
+            },
             "description": "Cascade delete clubs that use this game's packages"
           }
         ],
@@ -582,28 +824,146 @@
             "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "message": "Game deleted successfully",
-                  "data": { "id": "6ae2e6e0a8448da0f3c60dc0" }
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Game deleted successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "object",
+                          "example": "6ae2e6e0a8448da0f3c60dc0"
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
           },
-          "409": { "description": "Conflict" }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Super Admin - Games"
+        ],
+        "summary": "Update Game (alias)",
+        "description": "Same handler as `PUT /api/games/{id}`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "name": "Football Pro",
+                  "status": true
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "game": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60dc0",
+                            "name": "Football Pro"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
         }
       }
     },
     "/api/games/bulk-delete": {
       "post": {
-        "tags": ["Super Admin - Games"],
+        "tags": [
+          "Super Admin - Games"
+        ],
         "summary": "Bulk Delete Games",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "requestBody": {
+          "description": "Request Payload",
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/BulkDeleteBody" }
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e6e0a8448da0f3c60dc0",
+                    "6ae2e6e0a8448da0f3c60dc1"
+                  ]
+                }
+              }
             }
           }
         },
@@ -614,7 +974,9 @@
                 "example": {
                   "success": true,
                   "message": "2 game(s) deleted successfully",
-                  "data": { "deletedCount": 2 }
+                  "data": {
+                    "deletedCount": 2
+                  }
                 }
               }
             }
@@ -624,57 +986,140 @@
     },
     "/api/actions": {
       "get": {
-        "tags": ["Super Admin - Actions"],
+        "tags": [
+          "Super Admin - Actions"
+        ],
         "summary": "List Actions",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/PageParam" },
-          { "$ref": "#/components/parameters/LimitParam" },
-          { "$ref": "#/components/parameters/SearchParam" },
-          { "$ref": "#/components/parameters/SortByParam" },
-          { "$ref": "#/components/parameters/OrderParam" },
-          { "$ref": "#/components/parameters/StatusBoolParam" },
-          { "$ref": "#/components/parameters/GameIdQuery" }
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "description": "Page number"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Items per page (max 100)"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyword search"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "createdAt"
+            },
+            "description": "Field to sort by"
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            },
+            "description": "Sort direction"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Filter by active status (true/false)"
+          },
+          {
+            "name": "game_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter actions by game ID"
+          }
         ],
         "responses": {
           "200": {
             "description": "Paginated list result",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "items": [
-                      {
-                        "_id": "6ae2e6e0a8448da0f3c60dc5",
-                        "name": "Goal",
-                        "game_id": {
-                          "_id": "6ae2e6e0a8448da0f3c60dc0",
-                          "name": "Football"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          },
+                          "example": [
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dc5",
+                              "name": "Goal",
+                              "game_id": {
+                                "_id": "6ae2e6e0a8448da0f3c60dc0",
+                                "name": "Football"
+                              },
+                              "status": true
+                            }
+                          ]
                         },
-                        "status": true
+                        "pagination": {
+                          "$ref": "#/components/schemas/PaginationMeta"
+                        }
                       }
-                    ],
-                    "pagination": {
-                      "total": 45,
-                      "page": 1,
-                      "limit": 10,
-                      "totalPages": 5,
-                      "hasNextPage": true,
-                      "hasPrevPage": false
                     }
                   }
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           }
         }
       },
       "post": {
-        "tags": ["Super Admin - Actions"],
+        "tags": [
+          "Super Admin - Actions"
+        ],
         "summary": "Create Action",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "requestBody": {
+          "description": "Request Payload",
           "required": true,
           "content": {
             "application/json": {
@@ -691,172 +1136,491 @@
         },
         "responses": {
           "201": {
-            "description": "Action created",
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "message": "Action created successfully",
-                  "data": {
-                    "action": {
-                      "_id": "6ae2e6e0a8448da0f3c60dc6",
-                      "name": "Assist",
-                      "game_id": "6ae2e6e0a8448da0f3c60dc0",
-                      "status": true
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Action created successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60dc6",
+                            "name": "Assist",
+                            "game_id": "6ae2e6e0a8448da0f3c60dc0",
+                            "status": true
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
     },
     "/api/actions/{id}": {
       "get": {
-        "tags": ["Super Admin - Actions"],
+        "tags": [
+          "Super Admin - Actions"
+        ],
         "summary": "Get Action by ID",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "responses": {
           "200": {
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "action": {
-                      "_id": "6ae2e6e0a8448da0f3c60dc5",
-                      "name": "Goal",
-                      "status": true
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60dc5",
+                            "name": "Goal",
+                            "status": true
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       },
       "put": {
-        "tags": ["Super Admin - Actions"],
+        "tags": [
+          "Super Admin - Actions"
+        ],
         "summary": "Update Action",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "requestBody": {
+          "description": "Request Payload",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "example": { "name": "Penalty Goal", "status": true }
+                "example": {
+                  "name": "Penalty Goal",
+                  "status": true
+                }
               }
             }
           }
         },
         "responses": {
           "200": {
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "action": {
-                      "_id": "6ae2e6e0a8448da0f3c60dc5",
-                      "name": "Penalty Goal",
-                      "status": true
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60dc5",
+                            "name": "Penalty Goal",
+                            "status": true
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       },
       "delete": {
-        "tags": ["Super Admin - Actions"],
+        "tags": [
+          "Super Admin - Actions"
+        ],
         "summary": "Delete Action",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "responses": {
           "200": {
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "message": "Action deleted successfully",
-                  "data": { "id": "6ae2e6e0a8448da0f3c60dc5" }
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Action deleted successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "object",
+                          "example": "6ae2e6e0a8448da0f3c60dc5"
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Super Admin - Actions"
+        ],
+        "summary": "Update Action (alias)",
+        "description": "Same handler as `PUT /api/actions/{id}`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "name": "Goal",
+                  "status": true
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "action": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60dc5",
+                            "name": "Goal"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
     },
     "/api/packages": {
       "get": {
-        "tags": ["Super Admin - Packages"],
+        "tags": [
+          "Super Admin - Packages"
+        ],
         "summary": "List Packages",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/PageParam" },
-          { "$ref": "#/components/parameters/LimitParam" },
-          { "$ref": "#/components/parameters/SearchParam" },
-          { "$ref": "#/components/parameters/SortByParam" },
-          { "$ref": "#/components/parameters/OrderParam" },
-          { "$ref": "#/components/parameters/StatusBoolParam" },
-          { "$ref": "#/components/parameters/GameIdQuery" }
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "description": "Page number"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Items per page (max 100)"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyword search"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "createdAt"
+            },
+            "description": "Field to sort by"
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            },
+            "description": "Sort direction"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Filter by active status (true/false)"
+          },
+          {
+            "name": "game_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by game ID"
+          }
         ],
         "responses": {
           "200": {
             "description": "Paginated list result",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "items": [
-                      {
-                        "_id": "6ae2e6e0a8448da0f3c60dd0",
-                        "name": "Pro Club Package",
-                        "game_id": {
-                          "_id": "6ae2e6e0a8448da0f3c60dc0",
-                          "name": "Football"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          },
+                          "example": [
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dd0",
+                              "name": "Pro Club Package",
+                              "game_id": {
+                                "_id": "6ae2e6e0a8448da0f3c60dc0",
+                                "name": "Football"
+                              },
+                              "teams": 5,
+                              "players": 30,
+                              "status": true,
+                              "cycles": [
+                                {
+                                  "_id": "6ae2e6e0a8448da0f3c60dd1",
+                                  "name": "Quarterly (3 Months)",
+                                  "months": 3,
+                                  "price": 5000,
+                                  "discount": 10,
+                                  "discount_type": "percentage"
+                                },
+                                {
+                                  "_id": "6ae2e6e0a8448da0f3c60dd2",
+                                  "name": "Annual (12 Months)",
+                                  "months": 12,
+                                  "price": 18000,
+                                  "discount": 20,
+                                  "discount_type": "percentage"
+                                }
+                              ]
+                            }
+                          ]
                         },
-                        "teams": 5,
-                        "players": 30,
-                        "status": true,
-                        "cycles": [
-                          {
-                            "_id": "6ae2e6e0a8448da0f3c60dd1",
-                            "name": "Quarterly (3 Months)",
-                            "months": 3,
-                            "price": 5000,
-                            "discount": 10,
-                            "discount_type": "percentage"
-                          }
-                        ]
+                        "pagination": {
+                          "$ref": "#/components/schemas/PaginationMeta"
+                        }
                       }
-                    ],
-                    "pagination": {
-                      "total": 45,
-                      "page": 1,
-                      "limit": 10,
-                      "totalPages": 5,
-                      "hasNextPage": true,
-                      "hasPrevPage": false
                     }
                   }
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           }
         }
       },
       "post": {
-        "tags": ["Super Admin - Packages"],
+        "tags": [
+          "Super Admin - Packages"
+        ],
         "summary": "Create Package",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "requestBody": {
+          "description": "Request Payload",
           "required": true,
           "content": {
             "application/json": {
@@ -884,54 +1648,132 @@
         },
         "responses": {
           "201": {
-            "description": "Package created",
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "package": {
-                      "_id": "6ae2e6e0a8448da0f3c60dd5",
-                      "name": "Elite Package"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "package": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60dd5",
+                            "name": "Elite Package"
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
     },
     "/api/packages/{id}": {
       "get": {
-        "tags": ["Super Admin - Packages"],
+        "tags": [
+          "Super Admin - Packages"
+        ],
         "summary": "Get Package by ID",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "responses": {
           "200": {
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "package": {
-                      "_id": "6ae2e6e0a8448da0f3c60dd0",
-                      "name": "Pro Club Package"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "package": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60dd0",
+                            "name": "Pro Club Package"
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       },
       "put": {
-        "tags": ["Super Admin - Packages"],
+        "tags": [
+          "Super Admin - Packages"
+        ],
         "summary": "Update Package",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "requestBody": {
+          "description": "Request Payload",
           "required": true,
           "content": {
             "application/json": {
@@ -948,66 +1790,274 @@
         },
         "responses": {
           "200": {
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "package": {
-                      "_id": "6ae2e6e0a8448da0f3c60dd0",
-                      "name": "Pro Club Package (Updated)"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "package": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60dd0",
+                            "name": "Pro Club Package (Updated)"
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       },
       "delete": {
-        "tags": ["Super Admin - Packages"],
+        "tags": [
+          "Super Admin - Packages"
+        ],
         "summary": "Delete Package",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "responses": {
           "200": {
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "message": "Package deleted successfully",
-                  "data": { "id": "6ae2e6e0a8448da0f3c60dd0" }
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Package deleted successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "object",
+                          "example": "6ae2e6e0a8448da0f3c60dd0"
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Super Admin - Packages"
+        ],
+        "summary": "Update Package (alias)",
+        "description": "Same handler as `PUT /api/packages/{id}`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "name": "Pro Club Package",
+                  "status": true
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "package": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60dd0",
+                            "name": "Pro Club Package"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
     },
     "/api/clubs": {
       "get": {
-        "tags": ["Super Admin - Clubs"],
+        "tags": [
+          "Super Admin - Clubs"
+        ],
         "summary": "List Clubs / Tenants",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/PageParam" },
-          { "$ref": "#/components/parameters/LimitParam" },
-          { "$ref": "#/components/parameters/SearchParam" },
-          { "$ref": "#/components/parameters/SortByParam" },
-          { "$ref": "#/components/parameters/OrderParam" },
-          { "$ref": "#/components/parameters/StatusBoolParam" },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "description": "Page number"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Items per page (max 100)"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyword search"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "createdAt"
+            },
+            "description": "Field to sort by"
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            },
+            "description": "Sort direction"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Filter by active status (true/false)"
+          },
           {
             "name": "subscription_status",
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": ["active", "grace", "expired", "pending", "inactive"]
+              "enum": [
+                "active",
+                "grace",
+                "expired",
+                "pending",
+                "inactive"
+              ]
             }
           },
           {
             "name": "package_id",
             "in": "query",
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1015,81 +2065,86 @@
             "description": "Paginated list result",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "items": [
-                      {
-                        "_id": "6ae2e6e0a8448da0f3c60de0",
-                        "name": "Al Ahly SC",
-                        "subdomain": "ahly",
-                        "status": true,
-                        "package_id": {
-                          "_id": "6ae2e6e0a8448da0f3c60dd0",
-                          "name": "Pro Club Package"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          },
+                          "example": [
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60de0",
+                              "name": "Al Ahly SC",
+                              "subdomain": "ahly",
+                              "status": true,
+                              "package_id": {
+                                "_id": "6ae2e6e0a8448da0f3c60dd0",
+                                "name": "Pro Club Package"
+                              },
+                              "start_date": "2026-01-01T00:00:00.000Z",
+                              "end_date": "2027-01-01T00:00:00.000Z",
+                              "subscription": {
+                                "status": "active",
+                                "days_left": 64,
+                                "grace_days_left": null,
+                                "is_late_renewal": false
+                              }
+                            }
+                          ]
                         },
-                        "start_date": "2026-01-01T00:00:00.000Z",
-                        "end_date": "2027-01-01T00:00:00.000Z",
-                        "subscription": {
-                          "status": "active",
-                          "days_left": 64,
-                          "grace_days_left": null,
-                          "is_late_renewal": false
+                        "pagination": {
+                          "$ref": "#/components/schemas/PaginationMeta"
                         }
                       }
-                    ],
-                    "pagination": {
-                      "total": 45,
-                      "page": 1,
-                      "limit": 10,
-                      "totalPages": 5,
-                      "hasNextPage": true,
-                      "hasPrevPage": false
                     }
                   }
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           }
         }
       },
       "post": {
-        "tags": ["Super Admin - Clubs"],
+        "tags": [
+          "Super Admin - Clubs"
+        ],
         "summary": "Create Club / Tenant",
-        "description": "Registers a new club and provisions its isolated database with initial admin and settings. The admin credentials are mandatory.",
-        "security": [{ "SuperAdminAuth": [] }],
+        "description": "Registers a new club, provisions its isolated database and creates the first club admin in the same call. `admin_name`, `admin_email` and `admin_password` are required.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "requestBody": {
+          "description": "Request Payload",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": [
-                  "name",
-                  "subdomain",
-                  "admin_name",
-                  "admin_email",
-                  "admin_password"
-                ],
-                "properties": {
-                  "name": { "type": "string" },
-                  "subdomain": { "type": "string" },
-                  "package_id": { "type": "string" },
-                  "cycle_id": { "type": "string" },
-                  "start_date": { "type": "string", "format": "date-time" },
-                  "end_date": { "type": "string", "format": "date-time" },
-                  "status": { "type": "boolean" },
-                  "admin_name": { "type": "string" },
-                  "admin_email": { "type": "string", "format": "email" },
-                  "admin_password": { "type": "string" }
-                },
                 "example": {
                   "name": "Zamalek SC",
                   "subdomain": "zamalek",
                   "package_id": "6ae2e6e0a8448da0f3c60dd0",
+                  "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
+                  "start_date": "2026-10-01T00:00:00.000Z",
+                  "end_date": "2027-10-01T00:00:00.000Z",
+                  "status": true,
                   "admin_name": "Zamalek Admin",
                   "admin_email": "admin@zamalek.com",
-                  "admin_password": "Admin@123456"
+                  "admin_password": "Zamalek@123456"
                 }
               }
             }
@@ -1097,116 +2152,357 @@
         },
         "responses": {
           "201": {
-            "description": "Club created",
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "message": "Club created successfully",
-                  "data": {
-                    "club": {
-                      "_id": "6ae2e6e0a8448da0f3c60de1",
-                      "name": "Zamalek SC",
-                      "subdomain": "zamalek"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
                     },
-                    "tenant": {
-                      "database": "zamalek",
-                      "admin_created": true,
-                      "admin_email": "admin@zamalek.com"
+                    "message": {
+                      "type": "string",
+                      "example": "Club created successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "club": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60de1",
+                            "name": "Zamalek SC",
+                            "subdomain": "zamalek"
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
     },
     "/api/clubs/{id}": {
       "get": {
-        "tags": ["Super Admin - Clubs"],
+        "tags": [
+          "Super Admin - Clubs"
+        ],
         "summary": "Get Club by ID",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "responses": {
           "200": {
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "club": {
-                      "_id": "6ae2e6e0a8448da0f3c60de0",
-                      "name": "Al Ahly SC",
-                      "subdomain": "ahly"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "club": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60de0",
+                            "name": "Al Ahly SC",
+                            "subdomain": "ahly"
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       },
       "put": {
-        "tags": ["Super Admin - Clubs"],
+        "tags": [
+          "Super Admin - Clubs"
+        ],
         "summary": "Update Club",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "requestBody": {
+          "description": "Request Payload",
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "example": { "name": "Al Ahly Sporting Club", "status": true }
+                "example": {
+                  "name": "Al Ahly Sporting Club",
+                  "status": true
+                }
               }
             }
           }
         },
         "responses": {
           "200": {
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "club": {
-                      "_id": "6ae2e6e0a8448da0f3c60de0",
-                      "name": "Al Ahly Sporting Club"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "club": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60de0",
+                            "name": "Al Ahly Sporting Club"
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       },
       "delete": {
-        "tags": ["Super Admin - Clubs"],
+        "tags": [
+          "Super Admin - Clubs"
+        ],
         "summary": "Delete Club",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "responses": {
           "200": {
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "message": "Club deleted successfully",
-                  "data": { "id": "6ae2e6e0a8448da0f3c60de0" }
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Club deleted successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "object",
+                          "example": "6ae2e6e0a8448da0f3c60de0"
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Super Admin - Clubs"
+        ],
+        "summary": "Update Club (alias)",
+        "description": "Same handler as `PUT /api/clubs/{id}`. The `subdomain` is immutable once the club database exists.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "name": "Al Ahly Sporting Club",
+                  "status": true
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "club": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60de0",
+                            "name": "Al Ahly Sporting Club"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
     },
     "/api/clubs/{id}/tenant": {
       "get": {
-        "tags": ["Super Admin - Clubs"],
+        "tags": [
+          "Super Admin - Clubs"
+        ],
         "summary": "Get Tenant Database Counts",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "description": "Inspects the isolated MongoDB database of this club and counts rows in teams, players, matches, etc.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1236,73 +2532,224 @@
         }
       }
     },
+    "/api/clubs/{id}/tenant/reset-admin": {
+      "post": {
+        "tags": [
+          "Super Admin - Clubs"
+        ],
+        "summary": "Forgot Club Password (Reset from Super Admin)",
+        "description": "Resets the club admin password without touching DB directly. Generates strong random password if none is provided and returns it once.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "email": "admin@ahly.com",
+                  "password": "OptionalCustomPassword123",
+                  "activate": true
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Tenant admin password reset successfully",
+                  "data": {
+                    "club": {
+                      "name": "Al Ahly SC",
+                      "subdomain": "ahly",
+                      "database": "ahly"
+                    },
+                    "admin": {
+                      "email": "admin@ahly.com",
+                      "role": "admin",
+                      "status": true
+                    },
+                    "password": "Xk3vQ9tRm2Lp",
+                    "generated": true,
+                    "created": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/payment-methods": {
       "get": {
-        "tags": ["Super Admin - Payment Methods"],
+        "tags": [
+          "Super Admin - Payment Methods"
+        ],
         "summary": "List Payment Methods",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/PageParam" },
-          { "$ref": "#/components/parameters/LimitParam" },
-          { "$ref": "#/components/parameters/SearchParam" },
-          { "$ref": "#/components/parameters/SortByParam" },
-          { "$ref": "#/components/parameters/OrderParam" },
-          { "$ref": "#/components/parameters/StatusBoolParam" }
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "description": "Page number"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Items per page (max 100)"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyword search"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "createdAt"
+            },
+            "description": "Field to sort by"
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            },
+            "description": "Sort direction"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Filter by active status (true/false)"
+          }
         ],
         "responses": {
           "200": {
             "description": "Paginated list result",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "items": [
-                      {
-                        "_id": "6ae2e6e0a8448da0f3c60df0",
-                        "name": "InstaPay",
-                        "status": true,
-                        "description": "Transfer to instapay address",
-                        "icon": "https://sportego.org/uploads/instapay.png"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          },
+                          "example": [
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60df0",
+                              "name": "InstaPay",
+                              "status": true,
+                              "description": "Transfer to instapay address: scouting@instapay",
+                              "icon": "https://sportego.org/uploads/instapay.png"
+                            }
+                          ]
+                        },
+                        "pagination": {
+                          "$ref": "#/components/schemas/PaginationMeta"
+                        }
                       }
-                    ],
-                    "pagination": {
-                      "total": 45,
-                      "page": 1,
-                      "limit": 10,
-                      "totalPages": 5,
-                      "hasNextPage": true,
-                      "hasPrevPage": false
                     }
                   }
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           }
         }
       },
       "post": {
-        "tags": ["Super Admin - Payment Methods"],
+        "tags": [
+          "Super Admin - Payment Methods"
+        ],
         "summary": "Create Payment Method",
-        "security": [{ "SuperAdminAuth": [] }],
+        "description": "Accepts `multipart/form-data` with an `icon` image file, or JSON where `icon` is a URL.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "requestBody": {
-          "required": true,
+          "description": "Provide `icon` as a URL or as an uploaded file.",
+          "required": false,
           "content": {
             "multipart/form-data": {
               "schema": {
                 "type": "object",
-                "required": ["name", "icon"],
                 "properties": {
-                  "name": { "type": "string", "example": "Vodafone Cash" },
-                  "status": { "type": "boolean", "default": true },
+                  "name": {
+                    "type": "string",
+                    "example": "Vodafone Cash"
+                  },
+                  "status": {
+                    "type": "boolean",
+                    "example": true
+                  },
                   "description": {
                     "type": "string",
                     "example": "Send wallet transfer to 01012345678"
                   },
                   "icon": {
                     "type": "string",
-                    "format": "binary",
-                    "description": "Image file (.png, .jpg, .jpeg, .webp, max 5MB)"
+                    "description": "Icon URL, or upload the image in the `icon` field",
+                    "example": "https://sportego.org/uploads/vodafone.png"
                   }
                 }
               }
@@ -1311,215 +2758,241 @@
         },
         "responses": {
           "201": {
-            "description": "Payment method created",
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "paymentMethod": {
-                      "_id": "6ae2e6e0a8448da0f3c60df1",
-                      "name": "Vodafone Cash"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "paymentMethod": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60df1",
+                            "name": "Vodafone Cash"
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/BadRequest" }
-        }
-      }
-    },
-    "/api/payment-methods/{id}": {
-      "get": {
-        "tags": ["Super Admin - Payment Methods"],
-        "summary": "Get Payment Method by ID",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "payment_method": {
-                      "_id": "6ae2e6e0a8448da0f3c60df0",
-                      "name": "InstaPay",
-                      "status": true
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": ["Super Admin - Payment Methods"],
-        "summary": "Update Payment Method",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "name": { "type": "string" },
-                  "status": { "type": "boolean" },
-                  "description": { "type": "string" },
-                  "icon": {
-                    "type": "string",
-                    "format": "binary",
-                    "description": "New icon file (optional)"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "payment_method": {
-                      "_id": "6ae2e6e0a8448da0f3c60df0",
-                      "name": "InstaPay",
-                      "status": true
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": ["Super Admin - Payment Methods"],
-        "summary": "Delete Payment Method",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "example": {
-                  "success": true,
-                  "message": "Payment method deleted successfully",
-                  "data": { "id": "6ae2e6e0a8448da0f3c60df0" }
-                }
-              }
-            }
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
     },
     "/api/orders": {
       "get": {
-        "tags": ["Super Admin - Orders & Invoices"],
+        "tags": [
+          "Super Admin - Orders & Invoices"
+        ],
         "summary": "List Orders",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/PageParam" },
-          { "$ref": "#/components/parameters/LimitParam" },
-          { "$ref": "#/components/parameters/SearchParam" },
-          { "$ref": "#/components/parameters/SortByParam" },
-          { "$ref": "#/components/parameters/OrderParam" },
-          { "name": "club_id", "in": "query", "schema": { "type": "string" } },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "description": "Page number"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Items per page (max 100)"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyword search"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "createdAt"
+            },
+            "description": "Field to sort by"
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            },
+            "description": "Sort direction"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Filter by active status (true/false)"
+          },
+          {
+            "name": "club_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "package_id",
             "in": "query",
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "status",
             "in": "query",
             "schema": {
               "type": "string",
-              "enum": ["pending", "paid", "rejected", "cancelled", "refunded"]
+              "enum": [
+                "pending",
+                "paid",
+                "rejected",
+                "cancelled",
+                "refunded"
+              ]
             }
           },
           {
             "name": "order_number",
             "in": "query",
-            "schema": { "type": "string" }
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
           "200": {
+            "description": "Paginated list result",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "items": [
-                      {
-                        "_id": "6ae2e88d1540b80d32644b80",
-                        "order_number": "ORD-2026-000001",
-                        "club": { "name": "Al Ahly SC" },
-                        "package": { "name": "Pro Club Package" },
-                        "payment_method": { "name": "InstaPay" },
-                        "price": 18000,
-                        "discount": 3600,
-                        "fine": 0,
-                        "final_price": 14400,
-                        "status": "paid",
-                        "payment_proof": "https://sportego.org/uploads/proof-12345.png",
-                        "approved_by": "Super Admin",
-                        "paid_at": "2026-10-29T08:00:00.000Z",
-                        "notes": null
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          },
+                          "example": [
+                            {
+                              "_id": "6ae2e88d1540b80d32644b80",
+                              "order_number": "ORD-2026-000001",
+                              "club_id": {
+                                "_id": "6ae2e6e0a8448da0f3c60de0",
+                                "name": "Al Ahly SC",
+                                "subdomain": "ahly"
+                              },
+                              "package_id": {
+                                "_id": "6ae2e6e0a8448da0f3c60dd0",
+                                "name": "Pro Club Package"
+                              },
+                              "payment_method_id": {
+                                "_id": "6ae2e6e0a8448da0f3c60df0",
+                                "name": "InstaPay"
+                              },
+                              "price": 18000,
+                              "discount": 3600,
+                              "fine": 0,
+                              "final_price": 14400,
+                              "status": "pending",
+                              "payment_proof": "/uploads/proof-12345.png",
+                              "payment_reference": "INSTAPAY-TXN-9876",
+                              "applied_to_subscription": false
+                            }
+                          ]
+                        },
+                        "pagination": {
+                          "$ref": "#/components/schemas/PaginationMeta"
+                        }
                       }
-                    ],
-                    "pagination": {
-                      "total": 45,
-                      "page": 1,
-                      "limit": 10,
-                      "totalPages": 5,
-                      "hasNextPage": true,
-                      "hasPrevPage": false
                     }
                   }
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           }
         }
       },
       "post": {
-        "tags": ["Super Admin - Orders & Invoices"],
+        "tags": [
+          "Super Admin - Orders & Invoices"
+        ],
         "summary": "Create Order (Manual Entry)",
-        "security": [{ "SuperAdminAuth": [] }],
+        "description": "Creates a pending order on behalf of a club. `payment_proof` can be sent as a URL or as an uploaded file (`multipart/form-data`). New orders stay `pending` until a super admin approves them.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "requestBody": {
+          "description": "Request Payload",
           "required": true,
           "content": {
-            "multipart/form-data": {
+            "application/json": {
               "schema": {
                 "type": "object",
-                "required": [
-                  "club_id",
-                  "package_id",
-                  "payment_method_id",
-                  "payment_proof"
-                ],
-                "properties": {
-                  "club_id": { "type": "string" },
-                  "package_id": { "type": "string" },
-                  "cycle_id": { "type": "string" },
-                  "payment_method_id": { "type": "string" },
-                  "price": { "type": "number" },
-                  "discount": { "type": "number" },
-                  "fine": { "type": "number" },
-                  "notes": { "type": "string" },
-                  "payment_proof": {
-                    "type": "string",
-                    "format": "binary",
-                    "description": "Payment receipt image (.png, .jpg, .jpeg, .webp, max 5MB)"
-                  }
+                "example": {
+                  "club_id": "6ae2e6e0a8448da0f3c60de0",
+                  "package_id": "6ae2e6e0a8448da0f3c60dd0",
+                  "cycle_id": "6ae2e6e0a8448da0f3c60dd1",
+                  "payment_method_id": "6ae2e6e0a8448da0f3c60df0",
+                  "price": 5000,
+                  "discount": 500,
+                  "fine": 0,
+                  "payment_proof": "/uploads/proof-12345.png",
+                  "paid_at": "2026-10-29T08:00:00.000Z",
+                  "notes": "Paid by bank transfer"
                 }
               }
             }
@@ -1527,79 +3000,616 @@
         },
         "responses": {
           "201": {
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "order": {
-                      "_id": "6ae2e88d1540b80d32644b80",
-                      "order_number": "ORD-2026-000002"
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "order": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b80",
+                            "order_number": "ORD-2026-000002"
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
     },
     "/api/orders/{id}": {
       "get": {
-        "tags": ["Super Admin - Orders & Invoices"],
+        "tags": [
+          "Super Admin - Orders & Invoices"
+        ],
         "summary": "Get Order Details",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "responses": {
           "200": {
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "order": {
-                      "_id": "6ae2e88d1540b80d32644b80",
-                      "order_number": "ORD-2026-000001",
-                      "status": "pending",
-                      "final_price": 14400
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "order": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b80",
+                            "order_number": "ORD-2026-000001",
+                            "status": "pending",
+                            "final_price": 14400
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Super Admin - Orders & Invoices"
+        ],
+        "summary": "Update Order",
+        "description": "Accepts `multipart/form-data` when a new `payment_proof` file is attached.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "At least one field is required.",
+          "required": false,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "price": {
+                    "type": "number",
+                    "example": 5000
+                  },
+                  "discount": {
+                    "type": "number",
+                    "example": 500
+                  },
+                  "fine": {
+                    "type": "number",
+                    "example": 0
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "paid",
+                      "rejected",
+                      "cancelled",
+                      "refunded"
+                    ]
+                  },
+                  "payment_proof": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Optional new receipt image"
+                  },
+                  "paid_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "order": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b80",
+                            "status": "pending",
+                            "final_price": 4500
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Super Admin - Orders & Invoices"
+        ],
+        "summary": "Update Order (alias)",
+        "description": "Same handler as `PUT /api/orders/{id}`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "notes": "Called the club to confirm the transfer"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "order": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b80",
+                            "status": "pending"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Super Admin - Orders & Invoices"
+        ],
+        "summary": "Delete Order",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Order deleted successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "object",
+                          "example": "6ae2e88d1540b80d32644b80"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
     },
     "/api/orders/{id}/approve": {
       "post": {
-        "tags": ["Super Admin - Orders & Invoices"],
+        "tags": [
+          "Super Admin - Orders & Invoices"
+        ],
         "summary": "Approve Order & Extend Club Subscription",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
+        "description": "Super admin marks the pending order as paid. This atomically extends the club's end_date by the package cycle length.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "requestBody": {
-          "required": false,
+          "description": "Request Payload",
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
-                "example": { "notes": "Payment verified" }
+                "example": {
+                  "notes": "Payment verified on bank statement"
+                }
               }
             }
           }
         },
         "responses": {
           "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Order approved successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "order": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b80",
+                            "status": "paid",
+                            "applied_to_subscription": true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/reject": {
+      "post": {
+        "tags": [
+          "Super Admin - Orders & Invoices"
+        ],
+        "summary": "Reject Order",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "reason": "Payment receipt unreadable or transfer not received"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Order rejected successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "order": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b80",
+                            "status": "rejected",
+                            "rejection_reason": "Payment receipt unreadable or transfer not received"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/invoice": {
+      "get": {
+        "tags": [
+          "Super Admin - Orders & Invoices"
+        ],
+        "summary": "Get Order Invoice (JSON / HTML)",
+        "description": "Returns structured invoice data. Pass `?format=html` to render printable HTML.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "json",
+                "html"
+              ]
+            },
+            "description": "Response format"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Structured Invoice JSON or HTML",
             "content": {
               "application/json": {
                 "example": {
                   "success": true,
                   "data": {
-                    "order": {
-                      "_id": "6ae2e88d1540b80d32644b80",
-                      "status": "paid"
+                    "invoice": {
+                      "invoice_number": "INV-ORD-2026-000001",
+                      "order_number": "ORD-2026-000001",
+                      "status": "paid",
+                      "is_paid": true,
+                      "issued_at": "2026-10-29T08:00:00.000Z",
+                      "club": {
+                        "id": "6ae2e6e0a8448da0f3c60de0",
+                        "name": "Al Ahly SC",
+                        "subdomain": "ahly"
+                      },
+                      "provider": {
+                        "name": "Scouting Platform",
+                        "service": "Club Scouting & Analytics Management System"
+                      },
+                      "item": {
+                        "package_name": "Pro Club Package",
+                        "game_name": "Football",
+                        "cycle_name": "Annual (12 Months)",
+                        "months": 12,
+                        "unit_price": 18000,
+                        "discount": 3600,
+                        "fine": 0,
+                        "final_price": 14400
+                      },
+                      "pricing": {
+                        "subtotal": 18000,
+                        "discount": 3600,
+                        "fine": 0,
+                        "total": 14400,
+                        "currency": "EGP"
+                      },
+                      "payment": {
+                        "method_name": "InstaPay",
+                        "payment_reference": "TXN-12345"
+                      }
                     }
                   }
+                }
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -1607,36 +3617,37 @@
         }
       }
     },
-    "/api/orders/{id}/reject": {
-      "post": {
-        "tags": ["Super Admin - Orders & Invoices"],
-        "summary": "Reject Order",
-        "security": [{ "SuperAdminAuth": [] }],
-        "parameters": [{ "$ref": "#/components/parameters/MongoIdPath" }],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "example": { "reason": "Payment receipt unreadable" }
-              }
-            }
+    "/api/orders/{id}/invoice/html": {
+      "get": {
+        "tags": [
+          "Super Admin - Orders & Invoices"
+        ],
+        "summary": "Printable HTML Invoice",
+        "description": "Directly returns clean, print-ready HTML page with print button",
+        "security": [
+          {
+            "SuperAdminAuth": []
           }
-        },
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
         "responses": {
           "200": {
+            "description": "HTML Invoice page",
             "content": {
-              "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "order": {
-                      "_id": "6ae2e88d1540b80d32644b80",
-                      "status": "rejected",
-                      "rejection_reason": "Payment receipt unreadable"
-                    }
-                  }
+              "text/html": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -1646,34 +3657,69 @@
     },
     "/api/settings": {
       "get": {
-        "tags": ["Super Admin - Settings"],
+        "tags": [
+          "Super Admin - Settings"
+        ],
         "summary": "Get Global Settings",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "responses": {
           "200": {
+            "description": "Successful operation",
             "content": {
               "application/json": {
-                "example": {
-                  "success": true,
-                  "data": {
-                    "settings": {
-                      "key": "global",
-                      "allowed_days": 14,
-                      "notification": true,
-                      "fines": 500
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "settings": {
+                          "type": "object",
+                          "example": {
+                            "key": "global",
+                            "allowed_days": 14,
+                            "notification": true,
+                            "fines": 500
+                          }
+                        }
+                      }
                     }
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       },
       "put": {
-        "tags": ["Super Admin - Settings"],
+        "tags": [
+          "Super Admin - Settings"
+        ],
         "summary": "Update Global Settings",
-        "security": [{ "SuperAdminAuth": [] }],
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "requestBody": {
+          "description": "Request Payload",
           "required": true,
           "content": {
             "application/json": {
@@ -1690,16 +3736,307 @@
         },
         "responses": {
           "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "settings": {
+                          "type": "object",
+                          "example": {
+                            "allowed_days": 14,
+                            "notification": true,
+                            "fines": 500
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Super Admin - Settings"
+        ],
+        "summary": "Update Global Settings (alias)",
+        "description": "Same handler as `PUT /api/settings`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "allowed_days": 14,
+                  "notification": true,
+                  "fines": 500
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "settings": {
+                          "type": "object",
+                          "example": {
+                            "allowed_days": 14,
+                            "notification": true,
+                            "fines": 500
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/uploads": {
+      "post": {
+        "tags": [
+          "Super Admin - Uploads"
+        ],
+        "summary": "Upload General Image",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Upload file (multipart/form-data)",
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "image": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Image file (.png, .jpg, .jpeg, .webp, max 5MB)"
+                  }
+                },
+                "required": [
+                  "image"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "file": {
+                          "type": "object",
+                          "example": {
+                            "filename": "img-123456.png",
+                            "url": "/uploads/img-123456.png",
+                            "absolute_url": "http://localhost:4000/uploads/img-123456.png"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "Super Admin - Auth"
+        ],
+        "summary": "Super Admin Logout",
+        "description": "Stateless logout. Tokens are JWTs, so the client just drops the token.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Logged out",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Logged out successfully"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/games/bulk": {
+      "delete": {
+        "tags": [
+          "Super Admin - Games"
+        ],
+        "summary": "Bulk Delete Games (alias)",
+        "description": "Same handler as `POST /api/games/bulk-delete`, kept for clients that prefer `DELETE`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e6e0a8448da0f3c60dc0",
+                    "6ae2e6e0a8448da0f3c60dc1"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "2 game(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 2
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/actions/select": {
+      "get": {
+        "tags": [
+          "Super Admin - Actions"
+        ],
+        "summary": "Select Actions (Dropdown)",
+        "description": "Lightweight list used to fill dropdowns/select inputs.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by game ID"
+          }
+        ],
+        "responses": {
+          "200": {
             "content": {
               "application/json": {
                 "example": {
                   "success": true,
                   "data": {
-                    "settings": {
-                      "allowed_days": 14,
-                      "notification": true,
-                      "fines": 500
-                    }
+                    "actions": [
+                      {
+                        "_id": "6ae2e6e0a8448da0f3c60dc5",
+                        "name": "Goal",
+                        "game_id": "6ae2e6e0a8448da0f3c60dc0"
+                      }
+                    ]
                   }
                 }
               }
@@ -1708,41 +4045,1166 @@
         }
       }
     },
-    "/api/uploads": {
+    "/api/actions/bulk-delete": {
       "post": {
-        "tags": ["Super Admin - Uploads"],
-        "summary": "Upload General Image",
-        "security": [{ "SuperAdminAuth": [] }],
+        "tags": [
+          "Super Admin - Actions"
+        ],
+        "summary": "Bulk Delete Actions",
+        "description": "Deletes every document whose id is in `ids`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
         "requestBody": {
+          "description": "Request Payload",
           "required": true,
           "content": {
-            "multipart/form-data": {
+            "application/json": {
               "schema": {
                 "type": "object",
-                "properties": {
-                  "image": { "type": "string", "format": "binary" }
-                },
-                "required": ["image"]
+                "example": {
+                  "ids": [
+                    "6ae2e6e0a8448da0f3c60dc5"
+                  ]
+                }
               }
             }
           }
         },
         "responses": {
-          "201": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 action(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/actions/bulk": {
+      "delete": {
+        "tags": [
+          "Super Admin - Actions"
+        ],
+        "summary": "Bulk Delete Actions (alias)",
+        "description": "Same handler as `POST /api/actions/bulk-delete`, kept for clients that prefer `DELETE`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e6e0a8448da0f3c60dc5"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 action(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/packages/select": {
+      "get": {
+        "tags": [
+          "Super Admin - Packages"
+        ],
+        "summary": "Select Packages (Dropdown)",
+        "description": "Lightweight list used to fill dropdowns/select inputs.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by game ID"
+          }
+        ],
+        "responses": {
+          "200": {
             "content": {
               "application/json": {
                 "example": {
                   "success": true,
                   "data": {
-                    "file": {
-                      "filename": "img-123456.png",
-                      "url": "/uploads/img-123456.png",
-                      "absolute_url": "http://localhost:4000/uploads/img-123456.png"
+                    "packages": [
+                      {
+                        "_id": "6ae2e6e0a8448da0f3c60dd0",
+                        "name": "Pro Club Package"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/packages/bulk-delete": {
+      "post": {
+        "tags": [
+          "Super Admin - Packages"
+        ],
+        "summary": "Bulk Delete Packages",
+        "description": "Deletes every document whose id is in `ids`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e6e0a8448da0f3c60dd0"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 package(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/packages/bulk": {
+      "delete": {
+        "tags": [
+          "Super Admin - Packages"
+        ],
+        "summary": "Bulk Delete Packages (alias)",
+        "description": "Same handler as `POST /api/packages/bulk-delete`, kept for clients that prefer `DELETE`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e6e0a8448da0f3c60dd0"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 package(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/clubs/select": {
+      "get": {
+        "tags": [
+          "Super Admin - Clubs"
+        ],
+        "summary": "Select Clubs (Dropdown)",
+        "description": "Lightweight list used to fill dropdowns/select inputs.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "data": {
+                    "clubs": [
+                      {
+                        "_id": "6ae2e6e0a8448da0f3c60de0",
+                        "name": "Al Ahly SC",
+                        "subdomain": "ahly"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clubs/bulk-delete": {
+      "post": {
+        "tags": [
+          "Super Admin - Clubs"
+        ],
+        "summary": "Bulk Delete Clubs",
+        "description": "Deletes every document whose id is in `ids`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e6e0a8448da0f3c60de0"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 club(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/clubs/bulk": {
+      "delete": {
+        "tags": [
+          "Super Admin - Clubs"
+        ],
+        "summary": "Bulk Delete Clubs (alias)",
+        "description": "Same handler as `POST /api/clubs/bulk-delete`, kept for clients that prefer `DELETE`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e6e0a8448da0f3c60de0"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 club(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/clubs/{id}/subscription": {
+      "get": {
+        "tags": [
+          "Super Admin - Clubs"
+        ],
+        "summary": "Get Club Subscription Status",
+        "description": "Evaluates the club subscription (active / grace / expired / pending / inactive) using the global `allowed_days` grace window.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Subscription details",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "data": {
+                    "subscription": {
+                      "status": "active",
+                      "days_left": 64,
+                      "grace_days_left": null,
+                      "is_late_renewal": false,
+                      "allowed_days": 7
+                    },
+                    "club": {
+                      "_id": "6ae2e6e0a8448da0f3c60de0",
+                      "name": "Al Ahly SC",
+                      "subdomain": "ahly",
+                      "status": true,
+                      "start_date": "2026-01-01T00:00:00.000Z",
+                      "end_date": "2027-01-01T00:00:00.000Z"
                     }
                   }
                 }
               }
             }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/clubs/{id}/tenant/init": {
+      "post": {
+        "tags": [
+          "Super Admin - Clubs"
+        ],
+        "summary": "Initialize Tenant Database",
+        "description": "Creates the tenant indexes, the default settings document and the first club admin. Fails with 400 when `admin_name`, `admin_email` or `admin_password` is missing.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "admin_name": "Ahly Admin",
+                  "admin_email": "admin@ahly.com",
+                  "admin_password": "Ahly@123456"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tenant initialized",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Tenant database initialized successfully",
+                  "data": {
+                    "club": {
+                      "_id": "6ae2e6e0a8448da0f3c60de0",
+                      "name": "Al Ahly SC",
+                      "subdomain": "ahly"
+                    },
+                    "database": "ahly",
+                    "admin": {
+                      "email": "admin@ahly.com",
+                      "role": "admin"
+                    },
+                    "collections": {
+                      "team": 0,
+                      "team-players": 0,
+                      "match": 0,
+                      "settings": 1,
+                      "admin": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/payment-methods/select": {
+      "get": {
+        "tags": [
+          "Super Admin - Payment Methods"
+        ],
+        "summary": "Select Payment Methods (Dropdown)",
+        "description": "Lightweight list used to fill dropdowns/select inputs.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "data": {
+                    "payment_methods": [
+                      {
+                        "_id": "6ae2e6e0a8448da0f3c60df0",
+                        "name": "InstaPay"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/payment-methods/bulk-delete": {
+      "post": {
+        "tags": [
+          "Super Admin - Payment Methods"
+        ],
+        "summary": "Bulk Delete Payment Methods",
+        "description": "Deletes every document whose id is in `ids`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e6e0a8448da0f3c60df0"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 payment method(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/payment-methods/bulk": {
+      "delete": {
+        "tags": [
+          "Super Admin - Payment Methods"
+        ],
+        "summary": "Bulk Delete Payment Methods (alias)",
+        "description": "Same handler as `POST /api/payment-methods/bulk-delete`, kept for clients that prefer `DELETE`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e6e0a8448da0f3c60df0"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 payment method(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/payment-methods/{id}": {
+      "get": {
+        "tags": [
+          "Super Admin - Payment Methods"
+        ],
+        "summary": "Get Payment Method by ID",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "paymentMethod": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e6e0a8448da0f3c60df0",
+                            "name": "InstaPay",
+                            "status": true,
+                            "description": "Transfer to instapay address: scouting@instapay",
+                            "icon": "https://sportego.org/uploads/instapay.png"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Super Admin - Payment Methods"
+        ],
+        "summary": "Update Payment Method",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Send as `multipart/form-data` when uploading an icon file, otherwise `application/json`.",
+          "required": false,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "InstaPay"
+                  },
+                  "status": {
+                    "type": "boolean",
+                    "example": true
+                  },
+                  "description": {
+                    "type": "string",
+                    "example": "Send to scouting@instapay"
+                  },
+                  "icon": {
+                    "type": "string",
+                    "description": "Icon URL. Alternatively upload a file in the `icon` field.",
+                    "example": "https://sportego.org/uploads/instapay.png"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "paymentMethod": {
+                          "type": "object",
+                          "example": {
+                            "name": "InstaPay",
+                            "status": true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Super Admin - Payment Methods"
+        ],
+        "summary": "Update Payment Method (alias)",
+        "description": "Same handler as `PUT /api/payment-methods/{id}`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Send as `multipart/form-data` when uploading an icon file, otherwise `application/json`.",
+          "required": false,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "InstaPay"
+                  },
+                  "status": {
+                    "type": "boolean",
+                    "example": true
+                  },
+                  "description": {
+                    "type": "string",
+                    "example": "Send to scouting@instapay"
+                  },
+                  "icon": {
+                    "type": "string",
+                    "description": "Icon URL. Alternatively upload a file in the `icon` field.",
+                    "example": "https://sportego.org/uploads/instapay.png"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "paymentMethod": {
+                          "type": "object",
+                          "example": {
+                            "name": "InstaPay",
+                            "status": true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Super Admin - Payment Methods"
+        ],
+        "summary": "Delete Payment Method",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Payment method deleted successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "object",
+                          "example": "6ae2e6e0a8448da0f3c60df0"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/orders/bulk-delete": {
+      "post": {
+        "tags": [
+          "Super Admin - Orders & Invoices"
+        ],
+        "summary": "Bulk Delete Orders",
+        "description": "Deletes every document whose id is in `ids`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e88d1540b80d32644b80"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 order(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/orders/bulk": {
+      "delete": {
+        "tags": [
+          "Super Admin - Orders & Invoices"
+        ],
+        "summary": "Bulk Delete Orders (alias)",
+        "description": "Same handler as `POST /api/orders/bulk-delete`, kept for clients that prefer `DELETE`.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "ids": [
+                    "6ae2e88d1540b80d32644b80"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deleted documents count",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "1 order(s) deleted successfully",
+                  "data": {
+                    "deletedCount": 1
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/status": {
+      "patch": {
+        "tags": [
+          "Super Admin - Orders & Invoices"
+        ],
+        "summary": "Change Order Status",
+        "description": "Low-level status change. Prefer `POST /api/orders/{id}/approve` or `/reject`, which also update the club subscription.",
+        "security": [
+          {
+            "SuperAdminAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "status": "paid"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "order": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b80",
+                            "status": "paid"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
