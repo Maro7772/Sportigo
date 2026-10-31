@@ -69,9 +69,11 @@ export async function getMatch(req: Request, res: Response) {
 /** `POST /api/tenant/matches` */
 export async function createMatch(req: Request, res: Response) {
   const models = tenantModels(req);
-  const { team_id, team1_id, team2_id } = req.body;
 
-  const teamIds = [team_id, team1_id, team2_id].filter(Boolean) as string[];
+  const team1Id = req.body.team1_id ?? req.body.team_id;
+  const team2Id = req.body.team2_id ?? null;
+
+  const teamIds = [team1Id, team2Id].filter(Boolean) as string[];
   const existing = await models.Team.find({ _id: { $in: teamIds } })
     .select("_id")
     .lean();
@@ -83,10 +85,10 @@ export async function createMatch(req: Request, res: Response) {
   const match = await models.Match.create({
     name: req.body.name,
     date: req.body.date,
-    team_id: team1_id || team2_id ? null : team_id,
-    team1_id: team1_id ?? null,
-    team2_id: team2_id ?? null,
-    opponent_name: team1_id || team2_id ? null : (req.body.opponent_name ?? null),
+    team_id: team1Id, // legacy alias for team1
+    team1_id: team1Id,
+    team2_id: team2Id,
+    opponent_name: team2Id ? null : (req.body.opponent_name ?? null),
   });
 
   return SuccessResponse(res, { match }, 201, "Match created successfully");
@@ -99,26 +101,22 @@ export async function updateMatch(req: Request, res: Response) {
   const match = await models.Match.findById(req.params.id);
   if (!match) throw new NotFound("Match not found");
 
-  const nextTeamId =
-    req.body.team_id !== undefined ? req.body.team_id : match.team_id;
-  const nextTeam1Id =
-    req.body.team1_id !== undefined ? req.body.team1_id : match.team1_id;
-  const nextTeam2Id =
-    req.body.team2_id !== undefined ? req.body.team2_id : match.team2_id;
+  // Resolve team1 (required-ish): prefer explicit team1_id, fall back to team_id.
+  const newTeam1 =
+    req.body.team1_id !== undefined
+      ? req.body.team1_id
+      : req.body.team_id !== undefined
+      ? req.body.team_id
+      : undefined;
 
-  const usesPair = Boolean(nextTeam1Id) || Boolean(nextTeam2Id);
-  const usesSingle = Boolean(nextTeamId);
+  const newTeam2 =
+    req.body.team2_id !== undefined ? req.body.team2_id : undefined;
 
-  if (usesPair && usesSingle) {
-    throw new BadRequest("Use either team_id or team1_id + team2_id, not both");
-  }
-
-  const teamIds = [nextTeamId, nextTeam1Id, nextTeam2Id].filter(Boolean) as string[];
+  const teamIds = [newTeam1, newTeam2].filter((v) => v !== undefined && v !== null) as string[];
   if (teamIds.length) {
     const existing = await models.Team.find({ _id: { $in: teamIds } })
       .select("_id")
       .lean();
-
     if (existing.length !== new Set(teamIds.map(String)).size) {
       throw new NotFound("One of the selected teams does not exist");
     }
@@ -127,16 +125,15 @@ export async function updateMatch(req: Request, res: Response) {
   if (req.body.name !== undefined) match.name = req.body.name;
   if (req.body.date !== undefined) match.date = req.body.date;
 
-  if (usesPair) {
-    match.team_id = null;
-    match.team1_id = nextTeam1Id;
-    match.team2_id = nextTeam2Id;
-    match.opponent_name = null;
-  } else if (usesSingle) {
-    match.team_id = nextTeamId;
-    match.team1_id = null;
-    match.team2_id = null;
-    if (req.body.opponent_name !== undefined) match.opponent_name = req.body.opponent_name;
+  if (newTeam1 !== undefined) {
+    match.team_id = newTeam1;
+    match.team1_id = newTeam1;
+  }
+  if (newTeam2 !== undefined) {
+    match.team2_id = newTeam2;
+  }
+  if (req.body.opponent_name !== undefined) {
+    match.opponent_name = req.body.opponent_name;
   }
 
   await match.save();

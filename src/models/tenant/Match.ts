@@ -37,29 +37,18 @@ export const matchSchema = new Schema<IMatch>(
 matchSchema.index({ team1_id: 1, team2_id: 1 });
 
 matchSchema.pre("validate", function validateTeams(next) {
-  const single = Boolean(this.team_id);
-  const pair = Boolean(this.team1_id) || Boolean(this.team2_id);
+  // Legacy alias: team1_id is accepted as an alias for team_id.
+  if (!this.team_id && this.team1_id) {
+    this.team_id = this.team1_id as any;
+  }
 
-  if (single && pair) {
-    this.invalidate(
-      "team_id",
-      "Use either team_id or team1_id/team2_id, not both"
-    );
+  if (!this.team_id) {
+    this.invalidate("team_id", "team_id is required");
     return next();
   }
 
-  if (pair && (!this.team1_id || !this.team2_id)) {
-    this.invalidate("team2_id", "team1_id and team2_id are both required");
-    return next();
-  }
-
-  if (pair && String(this.team1_id) === String(this.team2_id)) {
-    this.invalidate("team2_id", "team1_id and team2_id must be different");
-    return next();
-  }
-
-  if (!single && !pair) {
-    this.invalidate("team_id", "Provide team_id or team1_id + team2_id");
+  if (this.team2_id && String(this.team2_id) === String(this.team_id)) {
+    this.invalidate("team2_id", "team2 must be different from team");
     return next();
   }
 

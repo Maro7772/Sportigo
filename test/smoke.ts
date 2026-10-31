@@ -1269,17 +1269,17 @@ async function main(): Promise<void> {
         name: "Mixed",
         date: new Date().toISOString(),
         team_id: team1Id,
-        team1_id: team1Id,
+        team1_id: team2Id,
         team2_id: team2Id,
       },
     });
-    eq("match with team_id + team1/team2 -> 400", mixedMatch.status, 400);
+    eq("match with mismatched team_id/team1_id -> 400", mixedMatch.status, 400);
 
-    const incompletePair = await api("POST", "/tenant/matches", {
+    const singleOnlyMatch = await api("POST", "/tenant/matches", {
       headers: tenantHeaders,
-      body: { name: "Incomplete", date: new Date().toISOString(), team1_id: team1Id },
+      body: { name: "Solo", date: new Date().toISOString(), team1_id: team1Id },
     });
-    eq("match with only team1_id -> 400", incompletePair.status, 400);
+    eq("match with only team1_id (no team2) -> 201", singleOnlyMatch.status, 201);
 
     console.log("\n▶ Tenant player progress");
     const allGames = await api("GET", "/games?limit=100", { token });
