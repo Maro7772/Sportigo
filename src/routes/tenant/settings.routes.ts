@@ -2,7 +2,6 @@ import { Router } from "express";
 import {
   getTenantSettings,
   updateTenantSettings,
-  uploadTenantLogo,
 } from "../../controllers/tenant/tenantSettings.controller";
 import { requireTenantRole } from "../../middlewares/tenantAuth";
 import { validate } from "../../middlewares/validate";
@@ -16,6 +15,15 @@ const router = Router();
 router.get("/", catchAsync(getTenantSettings));
 
 // Only the club admin can change it.
+// `POST` is the canonical endpoint: it accepts the logo file (multipart/form-data)
+// and the branding fields in the same request.
+router.post(
+  "/",
+  requireTenantRole("admin"),
+  imageUpload,
+  validate(updateTenantSettingsSchema),
+  catchAsync(updateTenantSettings)
+);
 router.put(
   "/",
   requireTenantRole("admin"),
@@ -30,6 +38,5 @@ router.patch(
   validate(updateTenantSettingsSchema),
   catchAsync(updateTenantSettings)
 );
-router.post("/logo", requireTenantRole("admin"), imageUpload, catchAsync(uploadTenantLogo));
 
 export default router;

@@ -51,7 +51,9 @@ export async function getMatch(req: Request, res: Response) {
   const match = await models.Match.findById(req.params.id).lean();
   if (!match) throw new NotFound("Match not found");
 
-  const teamIds = [match.team_id, match.team1_id, match.team2_id].filter(Boolean);
+  const teamIds = [match.team_id, match.team1_id, match.team2_id].filter(
+    Boolean,
+  );
   const [teams, progress] = await Promise.all([
     models.Team.find({ _id: { $in: teamIds } })
       .select("name game_id players")
@@ -101,18 +103,19 @@ export async function updateMatch(req: Request, res: Response) {
   const match = await models.Match.findById(req.params.id);
   if (!match) throw new NotFound("Match not found");
 
-  // Resolve team1 (required-ish): prefer explicit team1_id, fall back to team_id.
   const newTeam1 =
     req.body.team1_id !== undefined
       ? req.body.team1_id
       : req.body.team_id !== undefined
-      ? req.body.team_id
-      : undefined;
+        ? req.body.team_id
+        : undefined;
 
   const newTeam2 =
     req.body.team2_id !== undefined ? req.body.team2_id : undefined;
 
-  const teamIds = [newTeam1, newTeam2].filter((v) => v !== undefined && v !== null) as string[];
+  const teamIds = [newTeam1, newTeam2].filter(
+    (v) => v !== undefined && v !== null,
+  ) as string[];
   if (teamIds.length) {
     const existing = await models.Team.find({ _id: { $in: teamIds } })
       .select("_id")
@@ -148,16 +151,23 @@ export async function deleteMatch(req: Request, res: Response) {
   const match = await models.Match.findById(req.params.id);
   if (!match) throw new NotFound("Match not found");
 
-  const progress = await models.PlayerProgress.countDocuments({ match_id: match._id });
+  const progress = await models.PlayerProgress.countDocuments({
+    match_id: match._id,
+  });
   if (progress > 0) {
     throw new ConflictError(
-      `Cannot delete this match: ${progress} player-progress row(s) reference it`
+      `Cannot delete this match: ${progress} player-progress row(s) reference it`,
     );
   }
 
   await match.deleteOne();
 
-  return SuccessResponse(res, { id: req.params.id }, 200, "Match deleted successfully");
+  return SuccessResponse(
+    res,
+    { id: req.params.id },
+    200,
+    "Match deleted successfully",
+  );
 }
 
 /** `POST /api/tenant/matches/bulk-delete` */
@@ -165,10 +175,12 @@ export async function bulkDeleteMatches(req: Request, res: Response) {
   const models = tenantModels(req);
   const ids: string[] = req.body.ids;
 
-  const progress = await models.PlayerProgress.countDocuments({ match_id: { $in: ids } });
+  const progress = await models.PlayerProgress.countDocuments({
+    match_id: { $in: ids },
+  });
   if (progress > 0) {
     throw new ConflictError(
-      `Cannot delete: ${progress} player-progress row(s) reference some of these matches`
+      `Cannot delete: ${progress} player-progress row(s) reference some of these matches`,
     );
   }
 
@@ -178,6 +190,93 @@ export async function bulkDeleteMatches(req: Request, res: Response) {
     res,
     { deletedCount: result.deletedCount },
     200,
-    `${result.deletedCount} match(es) deleted successfully`
+    `${result.deletedCount} match(es) deleted successfully`,
   );
+}
+
+/** `GET /api/tenant/matches/:id/players-actions` */
+export async function getMatchPlayersActions(req: Request, res: Response) {
+  const models = tenantModels(req);
+  const matchId = req.params.id;
+
+  const match = await models.Match.findById(matchId).select("name").lean();
+  if (!match) throw new NotFound("Match not found");
+
+  const progress = await models.PlayerProgress.find({ match_id: matchId })
+    .populate("action_id", "name")
+    .populate("player_id", "name")
+    .lean();
+
+  const playerMap = new Map<string, any>();
+  for (const p of progress) {
+    if (!p.player_id || !p.action_id) continue; // Skip if deleted
+
+    const pid = String(p.player_id._id);
+    if (!playerMap.has(pid)) {
+      playerMap.set(pid, {
+        player: { id: p.player_id._id, name: p.player_id.name },
+        actions: [],
+      });
+    }
+    const actions = playerMap.get(pid).actions;
+    const existingAction = actions.find(
+      (a: any) => String(a.id) === String(p.action_id._id),
+    );
+    if (existingAction) {
+      existingAction.count += 1;
+    } else {
+      actions.push({ id: p.action_id._id, name: p.action_id.name, count: 1 });
+    }
+  }
+
+  return SuccessResponse(res, {
+    match: { id: match._id, name: match.name },
+    players_actions: Array.from(playerMap.values()),
+  });
+}
+
+/** `GET /api/tenant/matches/players-actions` */
+export async function getAllMatchesPlayersActions(req: Request, res: Response) {
+  const models = tenantModels(req);
+  const matches = await models.Match.find().select("name").lean();
+
+  const items = await Promise.all(
+    matches.map(async (match) => {
+      const progress = await models.PlayerProgress.find({ match_id: match._id })
+        .populate("action_id", "name")
+        .populate("player_id", "name")
+        .lean();
+
+      const playerMap = new Map<string, any>();
+      for (const p of progress) {
+        if (!p.player_id || !p.action_id) continue;
+
+        const pid = String(p.player_id._id);
+        if (!playerMap.has(pid)) {
+          playerMap.set(pid, {
+            player: { id: p.player_id._id, name: p.player_id.name },
+            actions: [],
+          });
+        }
+        const actions = playerMap.get(pid).actions;
+        const existingAction = actions.find(
+          (a: any) => String(a.id) === String(p.action_id._id),
+        );
+        if (existingAction) existingAction.count += 1;
+        else
+          actions.push({
+            id: p.action_id._id,
+            name: p.action_id.name,
+            count: 1,
+          });
+      }
+
+      return {
+        match: { id: match._id, name: match.name },
+        players_actions: Array.from(playerMap.values()),
+      };
+    }),
+  );
+
+  return SuccessResponse(res, { items });
 }

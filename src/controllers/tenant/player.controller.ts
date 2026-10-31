@@ -7,9 +7,20 @@ import { buildPaginationMeta } from "../../utils/pagination";
 import { Package } from "../../models/Package";
 import { tenantContext, tenantModels } from "../../middlewares/tenant";
 import type { ITeamPlayer } from "../../models/tenant";
-import { filterById, syncTeamPlayersCount, syncTeamsPlayersCount } from "./helpers";
+import {
+  filterById,
+  syncTeamPlayersCount,
+  syncTeamsPlayersCount,
+} from "./helpers";
 
-const SORT_FIELDS = ["name", "age", "height", "weight", "createdAt", "updatedAt"];
+const SORT_FIELDS = [
+  "name",
+  "age",
+  "height",
+  "weight",
+  "createdAt",
+  "updatedAt",
+];
 
 /** `GET /api/tenant/players` (collection: `team-players`) */
 export async function listPlayers(req: Request, res: Response) {
@@ -63,19 +74,25 @@ export async function getPlayer(req: Request, res: Response) {
 export async function createPlayer(req: Request, res: Response) {
   const models = tenantModels(req);
 
-  const team = await models.Team.findById(req.body.team_id).select("game_id").lean();
+  const team = await models.Team.findById(req.body.team_id)
+    .select("game_id")
+    .lean();
   if (!team) throw new NotFound("Team not found");
 
   const { club } = tenantContext(req);
-  if (club.package_id) {
-    const pkg = await Package.findById(club.package_id).select("players").lean();
-    if (pkg) {
-      const currentCount = await models.TeamPlayer.countDocuments({ team_id: team._id });
-      if (currentCount >= pkg.players) {
-        throw new BadRequest(
-          `This team already has ${currentCount} player(s); the club's package allows at most ${pkg.players} player(s) per team.`
-        );
-      }
+  if (!club.package_id) {
+    throw new BadRequest("You must be subscribed to a package to add players");
+  }
+
+  const pkg = await Package.findById(club.package_id).select("players").lean();
+  if (pkg) {
+    const currentCount = await models.TeamPlayer.countDocuments({
+      team_id: team._id,
+    });
+    if (currentCount >= pkg.players) {
+      throw new BadRequest(
+        `This team already has ${currentCount} player(s); the club's package allows at most ${pkg.players} player(s) per team.`,
+      );
     }
   }
 
@@ -107,14 +124,18 @@ export async function updatePlayer(req: Request, res: Response) {
   const previousTeamId = player.team_id;
 
   if (req.body.team_id !== undefined) {
-    const team = await models.Team.findById(req.body.team_id).select("game_id").lean();
+    const team = await models.Team.findById(req.body.team_id)
+      .select("game_id")
+      .lean();
     if (!team) throw new NotFound("Team not found");
 
     // Enforce the club package's per-team player limit when moving into a new team.
     if (String(req.body.team_id) !== String(player.team_id)) {
       const { club } = tenantContext(req);
       if (club.package_id) {
-        const pkg = await Package.findById(club.package_id).select("players").lean();
+        const pkg = await Package.findById(club.package_id)
+          .select("players")
+          .lean();
         if (pkg) {
           const currentCount = await models.TeamPlayer.countDocuments({
             team_id: team._id,
@@ -122,7 +143,7 @@ export async function updatePlayer(req: Request, res: Response) {
           });
           if (currentCount >= pkg.players) {
             throw new BadRequest(
-              `Destination team already has ${currentCount} player(s); the club's package allows at most ${pkg.players} player(s) per team.`
+              `Destination team already has ${currentCount} player(s); the club's package allows at most ${pkg.players} player(s) per team.`,
             );
           }
         }
@@ -158,17 +179,24 @@ export async function deletePlayer(req: Request, res: Response) {
   const player = await models.TeamPlayer.findById(req.params.id);
   if (!player) throw new NotFound("Player not found");
 
-  const progress = await models.PlayerProgress.countDocuments({ player_id: player._id });
+  const progress = await models.PlayerProgress.countDocuments({
+    player_id: player._id,
+  });
   if (progress > 0) {
     throw new ConflictError(
-      `Cannot delete this player: ${progress} player-progress row(s) reference it`
+      `Cannot delete this player: ${progress} player-progress row(s) reference it`,
     );
   }
 
   await player.deleteOne();
   await syncTeamPlayersCount(models, player.team_id);
 
-  return SuccessResponse(res, { id: req.params.id }, 200, "Player deleted successfully");
+  return SuccessResponse(
+    res,
+    { id: req.params.id },
+    200,
+    "Player deleted successfully",
+  );
 }
 
 /** `POST /api/tenant/players/bulk-delete` */
@@ -176,10 +204,12 @@ export async function bulkDeletePlayers(req: Request, res: Response) {
   const models = tenantModels(req);
   const ids: string[] = req.body.ids;
 
-  const progress = await models.PlayerProgress.countDocuments({ player_id: { $in: ids } });
+  const progress = await models.PlayerProgress.countDocuments({
+    player_id: { $in: ids },
+  });
   if (progress > 0) {
     throw new ConflictError(
-      `Cannot delete: ${progress} player-progress row(s) reference some of these players`
+      `Cannot delete: ${progress} player-progress row(s) reference some of these players`,
     );
   }
 
@@ -191,13 +221,13 @@ export async function bulkDeletePlayers(req: Request, res: Response) {
 
   await syncTeamsPlayersCount(
     models,
-    players.map((player) => player.team_id)
+    players.map((player) => player.team_id),
   );
 
   return SuccessResponse(
     res,
     { deletedCount: result.deletedCount },
     200,
-    `${result.deletedCount} player(s) deleted successfully`
+    `${result.deletedCount} player(s) deleted successfully`,
   );
 }

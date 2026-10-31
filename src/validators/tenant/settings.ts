@@ -11,10 +11,31 @@ const colorSchema = z
     message: "Color must be a hex value (#16a34a) or rgb()/hsl()",
   });
 
+const colorList = z.preprocess((value) => {
+  // multipart/form-data sends every field as a string: accept a JSON array
+  // (`["#fff","#000"]`) or a comma separated list (`#fff,#000`).
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    if (trimmed.startsWith("[")) {
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        return value;
+      }
+    }
+    return trimmed
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return value;
+}, z.array(colorSchema).max(20).optional());
+
 export const updateTenantSettingsSchema = z.object({
   body: z.object({
     logo: z.string().trim().max(2000).nullable().optional(),
-    background_color: z.array(colorSchema).max(20).optional(),
-    color: z.array(colorSchema).max(20).optional(),
+    background_color: colorList,
+    color: colorList,
   }),
 });

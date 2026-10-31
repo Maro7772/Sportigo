@@ -11,7 +11,11 @@ export async function getTenantSettings(req: Request, res: Response) {
   return SuccessResponse(res, { settings });
 }
 
-/** `PUT|PATCH /api/tenant/settings` */
+/**
+ * `POST|PUT|PATCH /api/tenant/settings`
+ * Accepts JSON (`logo` URL + colors) or multipart/form-data (logo file + colors)
+ * in the same request. Replaces the previous logo and deletes the old local file.
+ */
 export async function updateTenantSettings(req: Request, res: Response) {
   const models = tenantModels(req);
   const settings = await getOrCreateTenantSettings(models);
@@ -44,35 +48,4 @@ export async function updateTenantSettings(req: Request, res: Response) {
   await settings.save();
 
   return SuccessResponse(res, { settings }, 200, "Settings updated successfully");
-}
-
-/**
- * `POST /api/tenant/settings/logo` (multipart/form-data, field: `image`)
- * Replaces the previous logo and deletes the old local file.
- */
-export async function uploadTenantLogo(req: Request, res: Response) {
-  const file = getUploadedImage(req);
-
-  if (!file) {
-    throw new BadRequest(
-      'No image uploaded. Send a multipart/form-data request with an "image" (or "file") field.'
-    );
-  }
-
-  const models = tenantModels(req);
-  const settings = await getOrCreateTenantSettings(models);
-  const previousLogo = settings.logo;
-
-  const url = publicUploadUrl(file.filename);
-  settings.logo = url;
-  await settings.save();
-
-  removeUploadedFile(uploadPathFromUrl(previousLogo));
-
-  return SuccessResponse(
-    res,
-    { settings, logo_url: url },
-    200,
-    "Logo uploaded successfully"
-  );
 }

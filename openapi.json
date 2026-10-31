@@ -5255,21 +5255,42 @@
           }
         ],
         "requestBody": {
-          "description": "Request Payload",
-          "required": true,
+          "description": "Send as JSON (URL) or multipart/form-data (file upload).",
+          "required": false,
           "content": {
-            "application/json": {
+            "multipart/form-data": {
               "schema": {
                 "type": "object",
-                "example": {
-                  "logo": "/uploads/club-logo.png",
-                  "background_color": [
-                    "#e11d48",
-                    "#9f1239"
-                  ],
-                  "color": [
-                    "#ffffff"
-                  ]
+                "properties": {
+                  "logo": {
+                    "type": "string",
+                    "description": "Logo URL. Alternatively upload a file in the `image`/`file` field.",
+                    "example": "/uploads/club-logo.png"
+                  },
+                  "background_color": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "example": [
+                      "#e11d48",
+                      "#9f1239"
+                    ]
+                  },
+                  "color": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "example": [
+                      "#ffffff"
+                    ]
+                  },
+                  "image": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Logo image file (multipart/form-data)"
+                  }
                 }
               }
             }

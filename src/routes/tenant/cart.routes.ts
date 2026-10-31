@@ -8,7 +8,6 @@ import {
   listCart,
   updateCartItem,
 } from "../../controllers/tenant/cart.controller";
-import { uploadCartPaymentProof } from "../../controllers/tenant/upload.controller";
 import { requireTenantRole } from "../../middlewares/tenantAuth";
 import { validate } from "../../middlewares/validate";
 import { catchAsync } from "../../utils/catchAsync";
@@ -31,13 +30,13 @@ router.get("/", validate(listCartSchema), catchAsync(listCart));
 router.post("/bulk-delete", validate(bulkDeleteSchema), catchAsync(bulkDeleteCart));
 router.delete("/bulk", validate(bulkDeleteSchema), catchAsync(bulkDeleteCart));
 
+// Checks out the whole cart (all items with status "cart").
+router.post("/checkout", imageUpload, validate(checkoutCartSchema), catchAsync(checkoutCart));
+
 router.post("/", validate(createCartSchema), catchAsync(createCartItem));
 router.get("/:id", validate(idParamSchema), catchAsync(getCartItem));
 router.put("/:id", validate(updateCartSchema), catchAsync(updateCartItem));
 router.patch("/:id", validate(updateCartSchema), catchAsync(updateCartItem));
 router.delete("/:id", validate(idParamSchema), catchAsync(deleteCartItem));
-
-router.post("/:id/checkout", imageUpload, validate(checkoutCartSchema), catchAsync(checkoutCart));
-router.post("/:id/payment-proof", imageUpload, catchAsync(uploadCartPaymentProof));
 
 export default router;

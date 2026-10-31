@@ -2,9 +2,15 @@ import { Schema, model, type Model, type Types } from "mongoose";
 import { roundMoney } from "../utils/helpers";
 import { nextOrderNumber } from "../services/orderNumber.service";
 
-export type OrderStatus = "pending" | "paid" | "rejected" | "cancelled" | "refunded";
+export type OrderStatus =
+  | "pending"
+  | "paid"
+  | "rejected"
+  | "cancelled"
+  | "refunded";
 
 export interface IOrder {
+  _id: any;
   order_number: string;
   club_id: Types.ObjectId;
   package_id: Types.ObjectId;
@@ -59,7 +65,12 @@ const orderSchema = new Schema<IOrder, OrderModel>(
       index: true,
     },
     cycle_name: { type: String, default: null, trim: true, maxlength: 100 },
-    approved_by_name: { type: String, default: null, trim: true, maxlength: 120 },
+    approved_by_name: {
+      type: String,
+      default: null,
+      trim: true,
+      maxlength: 120,
+    },
     price: { type: Number, required: true, min: 0 },
     discount: { type: Number, default: 0, min: 0 },
     fine: { type: Number, default: 0, min: 0 },
@@ -72,18 +83,32 @@ const orderSchema = new Schema<IOrder, OrderModel>(
       index: true,
     },
     payment_proof: { type: String, default: null, trim: true, maxlength: 2000 },
-    payment_reference: { type: String, default: null, trim: true, maxlength: 200 },
+    payment_reference: {
+      type: String,
+      default: null,
+      trim: true,
+      maxlength: 200,
+    },
     paid_at: { type: Date, default: null },
-    approved_by: { type: Schema.Types.ObjectId, ref: "SuperAdmin", default: null },
+    approved_by: {
+      type: Schema.Types.ObjectId,
+      ref: "SuperAdmin",
+      default: null,
+    },
     approved_at: { type: Date, default: null },
     rejected_at: { type: Date, default: null },
-    rejection_reason: { type: String, default: null, trim: true, maxlength: 1000 },
+    rejection_reason: {
+      type: String,
+      default: null,
+      trim: true,
+      maxlength: 1000,
+    },
     review_notes: { type: String, default: null, trim: true, maxlength: 1000 },
     applied_to_subscription: { type: Boolean, default: false, required: true },
     applied_at: { type: Date, default: null },
     notes: { type: String, default: null, trim: true, maxlength: 1000 },
   },
-  { timestamps: true, versionKey: false }
+  { timestamps: true, versionKey: false },
 );
 
 orderSchema.pre("validate", async function assignOrderNumber() {
@@ -93,7 +118,9 @@ orderSchema.pre("validate", async function assignOrderNumber() {
 });
 
 orderSchema.pre("validate", function calculateFinalPrice(next) {
-  this.final_price = roundMoney(Math.max(0, this.price - this.discount + this.fine));
+  this.final_price = roundMoney(
+    Math.max(0, this.price - this.discount + this.fine),
+  );
 
   if (this.status === "paid" && !this.paid_at) {
     this.paid_at = new Date();

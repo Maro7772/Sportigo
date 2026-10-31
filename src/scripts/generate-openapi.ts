@@ -2158,11 +2158,15 @@ export function buildOpenApiSpec() {
       tags: ["Tenant - Settings & Branding"],
       summary: "Update Club Branding (Colors/Logo URL)",
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
-      requestBody: jsonBody({
-        logo: "/uploads/club-logo.png",
-        background_color: ["#e11d48", "#9f1239"],
-        color: ["#ffffff"],
-      }),
+      requestBody: optionalMultipartBody(
+        {
+          logo: { type: "string", description: "Logo URL. Alternatively upload a file in the `image`/`file` field.", example: "/uploads/club-logo.png" },
+          background_color: { type: "array", items: { type: "string" }, example: ["#e11d48", "#9f1239"] },
+          color: { type: "array", items: { type: "string" }, example: ["#ffffff"] },
+          image: { type: "string", format: "binary", description: "Logo image file (multipart/form-data)" },
+        },
+        "Send as JSON (URL) or multipart/form-data (file upload)."
+      ),
       responses: singleResponse("settings", {
         background_color: ["#e11d48", "#9f1239"],
       }),

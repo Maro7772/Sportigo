@@ -1,11 +1,12 @@
 import type { FilterQuery } from "mongoose";
 import type { Request, Response } from "express";
 import { Game } from "../../models/Game";
-import { ConflictError, NotFound } from "../../errors";
+import { ConflictError, NotFound, BadRequest } from "../../errors";
 import { SuccessResponse } from "../../utils/response";
 import { buildListQuery } from "../../utils/listQuery";
 import { buildPaginationMeta } from "../../utils/pagination";
-import { tenantModels } from "../../middlewares/tenant";
+import { tenantContext, tenantModels } from "../../middlewares/tenant";
+import { Package } from "../../models/Package";
 import type { ITeam } from "../../models/tenant";
 import { filterById } from "./helpers";
 
@@ -68,7 +69,11 @@ export async function getTeam(req: Request, res: Response) {
   const [players, matches] = await Promise.all([
     models.TeamPlayer.countDocuments({ team_id: team._id }),
     models.Match.countDocuments({
-      $or: [{ team_id: team._id }, { team1_id: team._id }, { team2_id: team._id }],
+      $or: [
+        { team_id: team._id },
+        { team1_id: team._id },
+        { team2_id: team._id },
+      ],
     }),
   ]);
 
@@ -82,6 +87,23 @@ export async function getTeam(req: Request, res: Response) {
 export async function createTeam(req: Request, res: Response) {
   const models = tenantModels(req);
   await assertGameExists(req.body.game_id);
+
+  const { club } = tenantContext(req);
+  if (!club.package_id) {
+    throw new BadRequest("You must be subscribed to a package to add teams");
+  }
+
+  const pkg = await Package.findById(club.package_id).select("teams").lean();
+  if (pkg) {
+    const currentCount = await models.Team.countDocuments({
+      game_id: req.body.game_id,
+    });
+    if (currentCount >= pkg.teams) {
+      throw new BadRequest(
+        `You have reached the maximum limit of ${pkg.teams} teams allowed by your package`,
+      );
+    }
+  }
 
   const team = await models.Team.create({
     name: req.body.name,
@@ -108,7 +130,7 @@ export async function updateTeam(req: Request, res: Response) {
       // Keep the players in sync with the team's new game.
       await models.TeamPlayer.updateMany(
         { team_id: team._id },
-        { $set: { game_id: req.body.game_id } }
+        { $set: { game_id: req.body.game_id } },
       );
       team.game_id = req.body.game_id;
     }
@@ -134,30 +156,45 @@ export async function deleteTeam(req: Request, res: Response) {
   const [players, matches] = await Promise.all([
     models.TeamPlayer.countDocuments({ team_id: team._id }),
     models.Match.countDocuments({
-      $or: [{ team_id: team._id }, { team1_id: team._id }, { team2_id: team._id }],
+      $or: [
+        { team_id: team._id },
+        { team1_id: team._id },
+        { team2_id: team._id },
+      ],
     }),
   ]);
 
   if (!force && (players > 0 || matches > 0)) {
     throw new ConflictError(
       `Cannot delete this team: it has ${players} player(s) and ${matches} match(es). ` +
-        "Pass ?force=true to cascade-delete its players and matches."
+        "Pass ?force=true to cascade-delete its players and matches.",
     );
   }
 
   if (force) {
-    const teamPlayers = await models.TeamPlayer.find({ team_id: team._id }).select("_id").lean();
+    const teamPlayers = await models.TeamPlayer.find({ team_id: team._id })
+      .select("_id")
+      .lean();
     const playerIds = teamPlayers.map((p) => p._id);
     await models.PlayerProgress.deleteMany({ player_id: { $in: playerIds } });
     await models.TeamPlayer.deleteMany({ team_id: team._id });
     await models.Match.deleteMany({
-      $or: [{ team_id: team._id }, { team1_id: team._id }, { team2_id: team._id }],
+      $or: [
+        { team_id: team._id },
+        { team1_id: team._id },
+        { team2_id: team._id },
+      ],
     });
   }
 
   await team.deleteOne();
 
-  return SuccessResponse(res, { id: req.params.id }, 200, "Team deleted successfully");
+  return SuccessResponse(
+    res,
+    { id: req.params.id },
+    200,
+    "Team deleted successfully",
+  );
 }
 
 /** `POST /api/tenant/teams/bulk-delete` */
@@ -168,13 +205,17 @@ export async function bulkDeleteTeams(req: Request, res: Response) {
   const [players, matches] = await Promise.all([
     models.TeamPlayer.countDocuments({ team_id: { $in: ids } }),
     models.Match.countDocuments({
-      $or: [{ team_id: { $in: ids } }, { team1_id: { $in: ids } }, { team2_id: { $in: ids } }],
+      $or: [
+        { team_id: { $in: ids } },
+        { team1_id: { $in: ids } },
+        { team2_id: { $in: ids } },
+      ],
     }),
   ]);
 
   if (players > 0 || matches > 0) {
     throw new ConflictError(
-      `Cannot delete: some teams have ${players} player(s) and ${matches} match(es)`
+      `Cannot delete: some teams have ${players} player(s) and ${matches} match(es)`,
     );
   }
 
@@ -184,6 +225,6 @@ export async function bulkDeleteTeams(req: Request, res: Response) {
     res,
     { deletedCount: result.deletedCount },
     200,
-    `${result.deletedCount} team(s) deleted successfully`
+    `${result.deletedCount} team(s) deleted successfully`,
   );
 }

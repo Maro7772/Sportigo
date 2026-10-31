@@ -27,7 +27,6 @@ export const listCartSchema = z.object({
 });
 
 export const checkoutCartSchema = z.object({
-  params: idParamSchema.shape.params,
   body: z.object({
     payment_method_id: objectIdSchema,
     payment_reference: z.string().trim().max(200).optional(),

@@ -1,8 +1,10 @@
 import type { FilterQuery } from "mongoose";
 import type { Request, Response } from "express";
-import { Order } from "../../models/Order";
+import { Order, type IOrder } from "../../models/Order";
 import { Package } from "../../models/Package";
 import { PaymentMethod } from "../../models/PaymentMethod";
+import { getOrCreateSettings } from "../../models/Settings";
+import { evaluateSubscription } from "../../services/subscription.service";
 import { BadRequest, ConflictError, NotFound } from "../../errors";
 import { SuccessResponse } from "../../utils/response";
 import { buildListQuery } from "../../utils/listQuery";
@@ -164,19 +166,19 @@ export async function bulkDeleteCart(req: Request, res: Response) {
 }
 
 /**
- * `POST /api/tenant/cart/:id/checkout`
- * Turns the cart into a central `Order` (status `pending`) that the super admin
- * reviews. The subscription is extended only after the super admin approves it.
+ * `POST /api/tenant/cart/checkout`
+ * Checks out **every** item currently in the cart (status `cart`):
+ * creates one central `Order` per item (status `pending`) that the super admin
+ * reviews, then removes those items from the cart.
+ * The subscription is extended only after the super admin approves the orders.
  */
 export async function checkoutCart(req: Request, res: Response) {
   const models = tenantModels(req);
   const { club } = tenantContext(req);
 
-  const cart = await models.Cart.findById(req.params.id);
-  if (!cart) throw new NotFound("Cart item not found");
-
-  if (cart.status !== "cart") {
-    throw new ConflictError(`This cart item is already ${cart.status}`);
+  const items = await models.Cart.find({ status: "cart" }).sort({ createdAt: 1 });
+  if (!items.length) {
+    throw new BadRequest("Your cart is empty");
   }
 
   const paymentMethod = await PaymentMethod.findById(req.body.payment_method_id).lean();
@@ -187,37 +189,61 @@ export async function checkoutCart(req: Request, res: Response) {
   const uploadedProofUrl = file ? publicUploadUrl(file.filename) : null;
   const finalProof = uploadedProofUrl ?? req.body.payment_proof ?? null;
 
-  if (!file && !req.body.payment_proof) {
+  if (!finalProof) {
     throw new BadRequest("Payment proof is required (upload a file or provide an image URL)");
   }
 
-  let order: any;
+  const settings = await getOrCreateSettings();
+  const subscription = evaluateSubscription(club, settings.allowed_days);
+  // The late-renewal fine is charged once per checkout, not once per cart item.
+  const fine = subscription.is_late_renewal ? settings.fines : 0;
+
+  const paymentReference = req.body.payment_reference ?? null;
+  const notes = req.body.notes ?? null;
+
+  const created: IOrder[] = [];
   try {
-    order = await Order.create({
-      club_id: club._id,
-      package_id: cart.package_id,
-      cycle_id: cart.cycle_id ?? null,
-      payment_method_id: paymentMethod._id,
-      price: cart.price,
-      discount: cart.discount,
-      fine: 0,
-      status: "pending",
-      payment_proof: finalProof,
-      payment_reference: req.body.payment_reference ?? null,
-      notes: req.body.notes ?? cart.notes ?? null,
-    });
+    for (const [index, item] of items.entries()) {
+      const order = await Order.create({
+        club_id: club._id,
+        package_id: item.package_id,
+        cycle_id: item.cycle_id ?? null,
+        cycle_name: item.cycle_name,
+        payment_method_id: paymentMethod._id,
+        price: item.price,
+        discount: item.discount,
+        fine: index === 0 ? fine : 0,
+        status: "pending",
+        payment_proof: finalProof,
+        payment_reference: paymentReference,
+        notes: notes ?? item.notes ?? null,
+      });
+      created.push(order);
+    }
   } catch (error) {
+    // Roll back the orders created so far; the proof file is shared by all of them.
+    if (created.length) {
+      await Order.deleteMany({ _id: { $in: created.map((order) => order._id) } });
+    }
     if (file) removeUploadedFile(file.path);
     throw error;
   }
 
-  cart.status = "checked_out";
-  cart.order_id = order._id;
-  await cart.save();
+  await models.Cart.deleteMany({ _id: { $in: items.map((item) => item._id) } });
+
+  const total = created.reduce(
+    (sum, order) => sum + (order.final_price ?? order.price - order.discount + order.fine),
+    0
+  );
 
   return SuccessResponse(
     res,
-    { cart, order },
+    {
+      orders: created,
+      count: created.length,
+      total,
+      payment_proof: finalProof,
+    },
     201,
     "Order created and sent to the super admin for review"
   );
