@@ -1,4 +1,4 @@
-import type { FilterQuery } from "mongoose";
+import type { FilterQuery, Types } from "mongoose";
 import type { Request, Response } from "express";
 import { BadRequest, ConflictError, NotFound } from "../../errors";
 import { SuccessResponse } from "../../utils/response";
@@ -194,89 +194,100 @@ export async function bulkDeleteMatches(req: Request, res: Response) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* Players' actions per match                                          */
+/* ------------------------------------------------------------------ */
+
+interface NamedRef {
+  _id: Types.ObjectId;
+  name: string;
+}
+
+interface PlayerActions {
+  player: { id: Types.ObjectId; name: string };
+  actions: { id: Types.ObjectId; name: string; count: number }[];
+}
+
+/**
+ * Groups populated player-progress rows into `{ player, actions[{ count }] }`.
+ * `populate` replaces the ids with `{ _id, name }` at runtime, but Mongoose
+ * still types them as ObjectId, hence the assertion here (done once).
+ */
+function groupPlayersActions(
+  rows: { player_id: unknown; action_id: unknown }[],
+): PlayerActions[] {
+  const byPlayer = new Map<string, PlayerActions>();
+
+  for (const row of rows) {
+    const player = row.player_id as NamedRef | null;
+    const action = row.action_id as NamedRef | null;
+    if (!player || !action) continue; // the referenced doc was deleted
+
+    const key = String(player._id);
+    let entry = byPlayer.get(key);
+    if (!entry) {
+      entry = { player: { id: player._id, name: player.name }, actions: [] };
+      byPlayer.set(key, entry);
+    }
+
+    const existing = entry.actions.find(
+      (a) => String(a.id) === String(action._id),
+    );
+    if (existing) existing.count += 1;
+    else entry.actions.push({ id: action._id, name: action.name, count: 1 });
+  }
+
+  return [...byPlayer.values()];
+}
+
 /** `GET /api/tenant/matches/:id/players-actions` */
 export async function getMatchPlayersActions(req: Request, res: Response) {
   const models = tenantModels(req);
-  const matchId = req.params.id;
 
-  const match = await models.Match.findById(matchId).select("name").lean();
+  const match = await models.Match.findById(req.params.id)
+    .select("name")
+    .lean();
   if (!match) throw new NotFound("Match not found");
 
-  const progress = await models.PlayerProgress.find({ match_id: matchId })
+  const rows = await models.PlayerProgress.find({ match_id: match._id })
     .populate("action_id", "name")
     .populate("player_id", "name")
     .lean();
 
-  const playerMap = new Map<string, any>();
-  for (const p of progress) {
-    if (!p.player_id || !p.action_id) continue; // Skip if deleted
-
-    const pid = String(p.player_id._id);
-    if (!playerMap.has(pid)) {
-      playerMap.set(pid, {
-        player: { id: p.player_id._id, name: p.player_id.name },
-        actions: [],
-      });
-    }
-    const actions = playerMap.get(pid).actions;
-    const existingAction = actions.find(
-      (a: any) => String(a.id) === String(p.action_id._id),
-    );
-    if (existingAction) {
-      existingAction.count += 1;
-    } else {
-      actions.push({ id: p.action_id._id, name: p.action_id.name, count: 1 });
-    }
-  }
-
   return SuccessResponse(res, {
     match: { id: match._id, name: match.name },
-    players_actions: Array.from(playerMap.values()),
+    players_actions: groupPlayersActions(rows),
   });
 }
 
 /** `GET /api/tenant/matches/players-actions` */
 export async function getAllMatchesPlayersActions(req: Request, res: Response) {
   const models = tenantModels(req);
+
   const matches = await models.Match.find().select("name").lean();
 
-  const items = await Promise.all(
-    matches.map(async (match) => {
-      const progress = await models.PlayerProgress.find({ match_id: match._id })
-        .populate("action_id", "name")
-        .populate("player_id", "name")
-        .lean();
+  // One query for all matches instead of one query per match.
+  const rows = await models.PlayerProgress.find({
+    match_id: { $in: matches.map((m) => m._id) },
+  })
+    .populate("action_id", "name")
+    .populate("player_id", "name")
+    .lean();
 
-      const playerMap = new Map<string, any>();
-      for (const p of progress) {
-        if (!p.player_id || !p.action_id) continue;
+  const rowsByMatch = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const key = String(row.match_id);
+    const list = rowsByMatch.get(key);
+    if (list) list.push(row);
+    else rowsByMatch.set(key, [row]);
+  }
 
-        const pid = String(p.player_id._id);
-        if (!playerMap.has(pid)) {
-          playerMap.set(pid, {
-            player: { id: p.player_id._id, name: p.player_id.name },
-            actions: [],
-          });
-        }
-        const actions = playerMap.get(pid).actions;
-        const existingAction = actions.find(
-          (a: any) => String(a.id) === String(p.action_id._id),
-        );
-        if (existingAction) existingAction.count += 1;
-        else
-          actions.push({
-            id: p.action_id._id,
-            name: p.action_id.name,
-            count: 1,
-          });
-      }
-
-      return {
-        match: { id: match._id, name: match.name },
-        players_actions: Array.from(playerMap.values()),
-      };
-    }),
-  );
+  const items = matches.map((match) => ({
+    match: { id: match._id, name: match.name },
+    players_actions: groupPlayersActions(
+      rowsByMatch.get(String(match._id)) ?? [],
+    ),
+  }));
 
   return SuccessResponse(res, { items });
 }
