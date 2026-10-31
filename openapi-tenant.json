@@ -2697,7 +2697,11 @@
               "schema": {
                 "type": "object",
                 "example": {
-                  "weight": 72
+                  "name": "Mohamed Salah",
+                  "team_id": "6ae2e88d1540b80d32644ad1",
+                  "height": 175,
+                  "weight": 72,
+                  "age": 24
                 }
               }
             }
@@ -2722,7 +2726,9 @@
                           "type": "object",
                           "example": {
                             "name": "Mohamed Salah",
-                            "weight": 72
+                            "height": 175,
+                            "weight": 72,
+                            "age": 24
                           }
                         }
                       }
@@ -4851,6 +4857,160 @@
         }
       }
     },
+    "/api/tenant/games": {
+      "get": {
+        "tags": [
+          "Tenant - Games"
+        ],
+        "summary": "List Games",
+        "description": "Read-only list of platform games. Used to pick a game when creating a team.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "description": "Page number"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Items per page (max 100)"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyword search"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "createdAt"
+            },
+            "description": "Field to sort by"
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            },
+            "description": "Sort direction"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Filter by active status (true/false)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          },
+                          "example": [
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dc0",
+                              "name": "Football",
+                              "status": true
+                            }
+                          ]
+                        },
+                        "pagination": {
+                          "$ref": "#/components/schemas/PaginationMeta"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/games/select": {
+      "get": {
+        "tags": [
+          "Tenant - Games"
+        ],
+        "summary": "Select Games (Dropdown)",
+        "description": "Lightweight list used to fill dropdowns/select inputs.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "data": {
+                    "items": [
+                      {
+                        "_id": "6ae2e6e0a8448da0f3c60dc0",
+                        "name": "Football"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tenant/teams/bulk-delete": {
       "post": {
         "tags": [
@@ -5181,6 +5341,111 @@
         }
       }
     },
+    "/api/tenant/player-progress/summary": {
+      "get": {
+        "tags": [
+          "Tenant - Player Progress"
+        ],
+        "summary": "Player Progress Summary (counts by action)",
+        "description": "Aggregates progress events, optionally filtered by player_id, match_id, action_id and a date range (?from=&to= on the linked match's date). Returns total events, counts per action, and a per-player breakdown.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "player_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "match_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "data": {
+                    "total_events": 12,
+                    "date_range": {
+                      "from": "2026-10-01",
+                      "to": "2026-10-31"
+                    },
+                    "by_action": [
+                      {
+                        "action_id": "6ae2e6e0a8448da0f3c60dc5",
+                        "action_name": "Goal",
+                        "count": 5
+                      },
+                      {
+                        "action_id": "6ae2e6e0a8448da0f3c60dc6",
+                        "action_name": "Assist",
+                        "count": 3
+                      }
+                    ],
+                    "by_player": [
+                      {
+                        "player_id": "6ae2e88d1540b80d32644ae7",
+                        "player_name": "Mohamed Salah",
+                        "total": 8,
+                        "actions": [
+                          {
+                            "action_id": "6ae2e6e0a8448da0f3c60dc5",
+                            "action_name": "Goal",
+                            "count": 5
+                          },
+                          {
+                            "action_id": "6ae2e6e0a8448da0f3c60dc6",
+                            "action_name": "Assist",
+                            "count": 3
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tenant/player-progress/bulk-delete": {
       "post": {
         "tags": [
@@ -5287,6 +5552,179 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/actions": {
+      "get": {
+        "tags": [
+          "Tenant - Actions"
+        ],
+        "summary": "List Actions",
+        "description": "Read-only list of platform actions (filter by ?game_id=). Used to record player progress.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            },
+            "description": "Page number"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 10
+            },
+            "description": "Items per page (max 100)"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Keyword search"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "createdAt"
+            },
+            "description": "Field to sort by"
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            },
+            "description": "Sort direction"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Filter by active status (true/false)"
+          },
+          {
+            "name": "game_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          },
+                          "example": [
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dc5",
+                              "name": "Goal",
+                              "game_id": {
+                                "_id": "6ae2e6e0a8448da0f3c60dc0",
+                                "name": "Football"
+                              },
+                              "status": true
+                            }
+                          ]
+                        },
+                        "pagination": {
+                          "$ref": "#/components/schemas/PaginationMeta"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/tenant/actions/select": {
+      "get": {
+        "tags": [
+          "Tenant - Actions"
+        ],
+        "summary": "Select Actions (Dropdown)",
+        "description": "Lightweight list used to fill dropdowns/select inputs.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "data": {
+                    "items": [
+                      {
+                        "_id": "6ae2e6e0a8448da0f3c60dc5",
+                        "name": "Goal"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
           }
         }
       }

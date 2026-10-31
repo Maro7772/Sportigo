@@ -12,13 +12,9 @@ const colorSchema = z
   });
 
 export const updateTenantSettingsSchema = z.object({
-  body: z
-    .object({
-      logo: z.string().trim().max(2000).nullable().optional(),
-      background_color: z.array(colorSchema).max(20).optional(),
-      color: z.array(colorSchema).max(20).optional(),
-    })
-    .refine((data) => Object.keys(data).length > 0, {
-      message: "At least one field is required",
-    }),
+  body: z.object({
+    logo: z.string().trim().max(2000).nullable().optional(),
+    background_color: z.array(colorSchema).max(20).optional(),
+    color: z.array(colorSchema).max(20).optional(),
+  }),
 });

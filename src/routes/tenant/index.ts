@@ -4,6 +4,8 @@ import { requireTenantSubscription, resolveTenant } from "../../middlewares/tena
 import { tenantAuthenticate } from "../../middlewares/tenantAuth";
 import { catchAsync } from "../../utils/catchAsync";
 import authRoutes from "./auth.routes";
+import gameRoutes from "./game.routes";
+import actionRoutes from "./action.routes";
 import adminRoutes from "./admin.routes";
 import settingsRoutes from "./settings.routes";
 import teamRoutes from "./team.routes";
@@ -42,6 +44,10 @@ router.use("/packages", packageRoutes);
 router.use("/payment-methods", paymentMethodRoutes);
 router.use("/cart", cartRoutes);
 router.use("/orders", orderRoutes);
+
+router.use("/games", gameRoutes);
+
+router.use("/actions", actionRoutes);
 
 router.use("/teams", requireTenantSubscription, teamRoutes);
 router.use("/players", requireTenantSubscription, playerRoutes);

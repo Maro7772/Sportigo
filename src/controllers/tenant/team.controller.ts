@@ -126,6 +126,11 @@ export async function deleteTeam(req: Request, res: Response) {
   const team = await models.Team.findById(req.params.id);
   if (!team) throw new NotFound("Team not found");
 
+  const force =
+    req.query.force === "true" ||
+    req.query.force === "1" ||
+    req.body?.force === true;
+
   const [players, matches] = await Promise.all([
     models.TeamPlayer.countDocuments({ team_id: team._id }),
     models.Match.countDocuments({
@@ -133,10 +138,21 @@ export async function deleteTeam(req: Request, res: Response) {
     }),
   ]);
 
-  if (players > 0 || matches > 0) {
+  if (!force && (players > 0 || matches > 0)) {
     throw new ConflictError(
-      `Cannot delete this team: it has ${players} player(s) and ${matches} match(es)`
+      `Cannot delete this team: it has ${players} player(s) and ${matches} match(es). ` +
+        "Pass ?force=true to cascade-delete its players and matches."
     );
+  }
+
+  if (force) {
+    const teamPlayers = await models.TeamPlayer.find({ team_id: team._id }).select("_id").lean();
+    const playerIds = teamPlayers.map((p) => p._id);
+    await models.PlayerProgress.deleteMany({ player_id: { $in: playerIds } });
+    await models.TeamPlayer.deleteMany({ team_id: team._id });
+    await models.Match.deleteMany({
+      $or: [{ team_id: team._id }, { team1_id: team._id }, { team2_id: team._id }],
+    });
   }
 
   await team.deleteOne();

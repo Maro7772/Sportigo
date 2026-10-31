@@ -19,12 +19,14 @@ router.get("/", catchAsync(getTenantSettings));
 router.put(
   "/",
   requireTenantRole("admin"),
+  imageUpload,
   validate(updateTenantSettingsSchema),
   catchAsync(updateTenantSettings)
 );
 router.patch(
   "/",
   requireTenantRole("admin"),
+  imageUpload,
   validate(updateTenantSettingsSchema),
   catchAsync(updateTenantSettings)
 );

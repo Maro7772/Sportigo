@@ -51,7 +51,101 @@ async function assertProgressLinks(
   }
 }
 
-/** `GET /api/tenant/player-progress` */
+/** `GET /api/tenant/player-progress/summary` — aggregated counts per action (and per player). */
+export async function summarizeProgress(req: Request, res: Response) {
+  const models = tenantModels(req);
+
+  const filter: Record<string, unknown> = {};
+  filterById(filter, req, "player_id");
+  filterById(filter, req, "match_id");
+  filterById(filter, req, "action_id");
+
+  const dateFilter: Record<string, Date> = {};
+  const from = req.query.from;
+  if (typeof from === "string" && from.trim()) {
+    const date = new Date(from);
+    if (Number.isNaN(date.getTime())) throw new BadRequest("Invalid from date");
+    dateFilter.$gte = date;
+  }
+  const to = req.query.to;
+  if (typeof to === "string" && to.trim()) {
+    const date = new Date(to);
+    if (Number.isNaN(date.getTime())) throw new BadRequest("Invalid to date");
+    dateFilter.$lte = date;
+  }
+  if (Object.keys(dateFilter).length) {
+    const matching = await models.Match.find({ date: dateFilter }).select("_id").lean();
+    const ids = matching.map((match) => match._id);
+    if (filter.match_id) {
+      const requested = String(filter.match_id);
+      filter.match_id = ids.some((id) => String(id) === requested)
+        ? filter.match_id
+        : { $in: [] };
+    } else {
+      filter.match_id = { $in: ids };
+    }
+  }
+
+  const events = await models.PlayerProgress.find(filter as FilterQuery<IPlayerProgress>).lean();
+
+  const actionIds = [...new Set(events.map((event) => String(event.action_id)))];
+  const playerIds = [...new Set(events.map((event) => String(event.player_id)))];
+
+  const [actions, players] = await Promise.all([
+    Action.find({ _id: { $in: actionIds } }).select("name game_id").lean(),
+    models.TeamPlayer.find({ _id: { $in: playerIds } }).select("name team_id").lean(),
+  ]);
+
+  const actionById = new Map(actions.map((action) => [String(action._id), action]));
+  const playerById = new Map(players.map((player) => [String(player._id), player]));
+
+  const byAction = new Map<string, number>();
+  const byPlayer = new Map<string, Map<string, number>>();
+
+  for (const event of events) {
+    const aid = String(event.action_id);
+    byAction.set(aid, (byAction.get(aid) ?? 0) + 1);
+
+    const pid = String(event.player_id);
+    if (!byPlayer.has(pid)) byPlayer.set(pid, new Map());
+    const actionMap = byPlayer.get(pid)!;
+    actionMap.set(aid, (actionMap.get(aid) ?? 0) + 1);
+  }
+
+  const actionSummary = [...byAction.entries()]
+    .map(([aid, count]) => ({
+      action_id: aid,
+      action_name: actionById.get(aid)?.name ?? null,
+      count,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  const playerSummary = [...byPlayer.entries()]
+    .map(([pid, actionMap]) => {
+      const actions = [...actionMap.entries()]
+        .map(([aid, count]) => ({
+          action_id: aid,
+          action_name: actionById.get(aid)?.name ?? null,
+          count,
+        }))
+        .sort((a, b) => b.count - a.count);
+      const total = actions.reduce((sum, item) => sum + item.count, 0);
+      return {
+        player_id: pid,
+        player_name: playerById.get(pid)?.name ?? null,
+        total,
+        actions,
+      };
+    })
+    .sort((a, b) => b.total - a.total);
+
+  return SuccessResponse(res, {
+    total_events: events.length,
+    date_range: { from: from ?? null, to: to ?? null },
+    by_action: actionSummary,
+    by_player: playerSummary,
+  });
+}
 export async function listProgress(req: Request, res: Response) {
   const models = tenantModels(req);
 

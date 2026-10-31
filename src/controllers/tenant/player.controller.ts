@@ -4,7 +4,8 @@ import { BadRequest, ConflictError, NotFound } from "../../errors";
 import { SuccessResponse } from "../../utils/response";
 import { buildListQuery } from "../../utils/listQuery";
 import { buildPaginationMeta } from "../../utils/pagination";
-import { tenantModels } from "../../middlewares/tenant";
+import { Package } from "../../models/Package";
+import { tenantContext, tenantModels } from "../../middlewares/tenant";
 import type { ITeamPlayer } from "../../models/tenant";
 import { filterById, syncTeamPlayersCount, syncTeamsPlayersCount } from "./helpers";
 
@@ -65,6 +66,19 @@ export async function createPlayer(req: Request, res: Response) {
   const team = await models.Team.findById(req.body.team_id).select("game_id").lean();
   if (!team) throw new NotFound("Team not found");
 
+  const { club } = tenantContext(req);
+  if (club.package_id) {
+    const pkg = await Package.findById(club.package_id).select("players").lean();
+    if (pkg) {
+      const currentCount = await models.TeamPlayer.countDocuments({ team_id: team._id });
+      if (currentCount >= pkg.players) {
+        throw new BadRequest(
+          `This team already has ${currentCount} player(s); the club's package allows at most ${pkg.players} player(s) per team.`
+        );
+      }
+    }
+  }
+
   if (req.body.game_id && String(req.body.game_id) !== String(team.game_id)) {
     throw new BadRequest("game_id must match the game of the selected team");
   }
@@ -95,6 +109,25 @@ export async function updatePlayer(req: Request, res: Response) {
   if (req.body.team_id !== undefined) {
     const team = await models.Team.findById(req.body.team_id).select("game_id").lean();
     if (!team) throw new NotFound("Team not found");
+
+    // Enforce the club package's per-team player limit when moving into a new team.
+    if (String(req.body.team_id) !== String(player.team_id)) {
+      const { club } = tenantContext(req);
+      if (club.package_id) {
+        const pkg = await Package.findById(club.package_id).select("players").lean();
+        if (pkg) {
+          const currentCount = await models.TeamPlayer.countDocuments({
+            team_id: team._id,
+            _id: { $ne: player._id },
+          });
+          if (currentCount >= pkg.players) {
+            throw new BadRequest(
+              `Destination team already has ${currentCount} player(s); the club's package allows at most ${pkg.players} player(s) per team.`
+            );
+          }
+        }
+      }
+    }
 
     player.team_id = team._id;
     player.game_id = team.game_id;

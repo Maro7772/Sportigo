@@ -28,6 +28,9 @@ export async function listMatches(req: Request, res: Response) {
 
   const [items, total] = await Promise.all([
     models.Match.find(filter as FilterQuery<IMatch>)
+      .populate("team_id", "name")
+      .populate("team1_id", "name")
+      .populate("team2_id", "name")
       .sort(sort)
       .skip(skip)
       .limit(limit)

@@ -5,6 +5,7 @@ import {
   deleteProgress,
   getProgress,
   listProgress,
+  summarizeProgress,
   updateProgress,
 } from "../../controllers/tenant/progress.controller";
 import { requireTenantRole } from "../../middlewares/tenantAuth";
@@ -20,6 +21,7 @@ import {
 const router = Router();
 
 // Reads: admin + coach + viewer
+router.get("/summary", validate(listProgressSchema), catchAsync(summarizeProgress));
 router.get("/", validate(listProgressSchema), catchAsync(listProgress));
 router.get("/:id", validate(idParamSchema), catchAsync(getProgress));
 

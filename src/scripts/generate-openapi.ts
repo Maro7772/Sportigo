@@ -656,8 +656,19 @@ function addMissingPaths(paths: Record<string, any>) {
   });
 
   // ---------------------------------------------------------------
-  // Tenant - Bulk deletes & PATCH aliases
+  // Tenant - Games (read-only, shared central games)
   // ---------------------------------------------------------------
+  addOperation(paths, "/api/tenant/games", "get", {
+    tags: ["Tenant - Games"],
+    summary: "List Games",
+    description: "Read-only list of platform games. Used to pick a game when creating a team.",
+    security: TENANT_SECURITY,
+    parameters: standardListParams([]),
+    responses: paginatedResponse("Game", { _id: "6ae2e6e0a8448da0f3c60dc0", name: "Football", status: true }),
+  });
+  addSelect(paths, "/api/tenant/games", "Tenant - Games", "Select Games (Dropdown)", "items", TENANT_SECURITY, [
+    { _id: "6ae2e6e0a8448da0f3c60dc0", name: "Football" },
+  ]);
   addBulkDelete(paths, "/api/tenant/teams", "Tenant - Teams", "Team", TENANT_SECURITY, [
     "6ae2e88d1540b80d32644ad1",
   ]);
@@ -667,6 +678,51 @@ function addMissingPaths(paths: Record<string, any>) {
   addBulkDelete(paths, "/api/tenant/matches", "Tenant - Matches", "Match", TENANT_SECURITY, [
     "6ae2e88d1540b80d32644b00",
   ]);
+  addOperation(paths, "/api/tenant/player-progress/summary", "get", {
+    tags: ["Tenant - Player Progress"],
+    summary: "Player Progress Summary (counts by action)",
+    description:
+      "Aggregates progress events, optionally filtered by player_id, match_id, action_id and a date range (?from=&to= on the linked match's date). Returns total events, counts per action, and a per-player breakdown.",
+    security: TENANT_SECURITY,
+    parameters: [
+      { name: "player_id", in: "query", schema: { type: "string" } },
+      { name: "match_id", in: "query", schema: { type: "string" } },
+      { name: "action_id", in: "query", schema: { type: "string" } },
+      { name: "from", in: "query", schema: { type: "string", format: "date" } },
+      { name: "to", in: "query", schema: { type: "string", format: "date" } },
+    ],
+    responses: {
+      200: {
+        content: {
+          "application/json": {
+            example: {
+              success: true,
+              data: {
+                total_events: 12,
+                date_range: { from: "2026-10-01", to: "2026-10-31" },
+                by_action: [
+                  { action_id: "6ae2e6e0a8448da0f3c60dc5", action_name: "Goal", count: 5 },
+                  { action_id: "6ae2e6e0a8448da0f3c60dc6", action_name: "Assist", count: 3 },
+                ],
+                by_player: [
+                  {
+                    player_id: "6ae2e88d1540b80d32644ae7",
+                    player_name: "Mohamed Salah",
+                    total: 8,
+                    actions: [
+                      { action_id: "6ae2e6e0a8448da0f3c60dc5", action_name: "Goal", count: 5 },
+                      { action_id: "6ae2e6e0a8448da0f3c60dc6", action_name: "Assist", count: 3 },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
   addBulkDelete(
     paths,
     "/api/tenant/player-progress",
@@ -675,6 +731,28 @@ function addMissingPaths(paths: Record<string, any>) {
     TENANT_SECURITY,
     ["6ae2e88d1540b80d32644b20"]
   );
+  // ---------------------------------------------------------------
+  // Tenant - Actions (read-only, shared central actions)
+  // ---------------------------------------------------------------
+  addOperation(paths, "/api/tenant/actions", "get", {
+    tags: ["Tenant - Actions"],
+    summary: "List Actions",
+    description: "Read-only list of platform actions (filter by ?game_id=). Used to record player progress.",
+    security: TENANT_SECURITY,
+    parameters: standardListParams([
+      { name: "game_id", in: "query", schema: { type: "string" } },
+    ]),
+    responses: paginatedResponse("Action", {
+      _id: "6ae2e6e0a8448da0f3c60dc5",
+      name: "Goal",
+      game_id: { _id: "6ae2e6e0a8448da0f3c60dc0", name: "Football" },
+      status: true,
+    }),
+  });
+  addSelect(paths, "/api/tenant/actions", "Tenant - Actions", "Select Actions (Dropdown)", "items", TENANT_SECURITY, [
+    { _id: "6ae2e6e0a8448da0f3c60dc5", name: "Goal" },
+  ], [{ name: "game_id", in: "query", schema: { type: "string" } }]);
+
   addBulkDelete(paths, "/api/tenant/admins", "Tenant - Sub-Admins", "Admin", TENANT_SECURITY, [
     "6ae2e6e0a8448da0f3c60de9",
   ]);
@@ -726,8 +804,8 @@ function addMissingPaths(paths: Record<string, any>) {
     description: "Same handler as `PUT /api/tenant/players/{id}`.",
     security: TENANT_SECURITY,
     parameters: idParam(),
-    requestBody: jsonBody({ weight: 72 }),
-    responses: singleResponse("player", { name: "Mohamed Salah", weight: 72 }),
+    requestBody: jsonBody({ name: "Mohamed Salah", team_id: "6ae2e88d1540b80d32644ad1", height: 175, weight: 72, age: 24 }),
+    responses: singleResponse("player", { name: "Mohamed Salah", height: 175, weight: 72, age: 24 }),
   });
 
   addOperation(paths, "/api/tenant/matches/{id}", "patch", {
