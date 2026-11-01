@@ -10,8 +10,15 @@ import { roundMoney } from "../../utils/helpers";
 import { attachCycle } from "../../utils/orderView";
 import { tenantContext, tenantModels } from "../../middlewares/tenant";
 import type { TenantModels } from "../../models/tenant";
-import { getUploadedImage, publicUploadUrl, removeUploadedFile } from "../../config/upload";
-import { resolveCartPricing, type CartPricing } from "../../services/tenantCart.service";
+import {
+  getUploadedImage,
+  publicUploadUrl,
+  removeUploadedFile,
+} from "../../config/upload";
+import {
+  resolveCartPricing,
+  type CartPricing,
+} from "../../services/tenantCart.service";
 
 /**
  * Each club owns **one cart**, but the cart holds **many lines** (one document
@@ -52,7 +59,7 @@ async function buildCartPayload(models: TenantModels) {
   const packages = await Package.find({
     _id: { $in: items.map((item) => item.package_id) },
   })
-    .select("name game_id teams players status cycles")
+    .select("name game_id teams players status")
     .lean();
 
   const byId = new Map(packages.map((pkg) => [String(pkg._id), pkg]));
@@ -64,14 +71,19 @@ async function buildCartPayload(models: TenantModels) {
       ...item,
       package: pkg,
       // The exact cycle recorded on this line, resolved from the package's cycles.
-      cycle: pkg?.cycles?.find((cycle) => String(cycle._id) === String(item.cycle_id)) ?? null,
+      cycle:
+        pkg?.cycles?.find(
+          (cycle) => String(cycle._id) === String(item.cycle_id),
+        ) ?? null,
     };
   });
 
   return {
     items: enriched,
     count: enriched.length,
-    total: roundMoney(enriched.reduce((sum, item) => sum + (item.final_price ?? 0), 0)),
+    total: roundMoney(
+      enriched.reduce((sum, item) => sum + (item.final_price ?? 0), 0),
+    ),
   };
 }
 
@@ -132,7 +144,9 @@ export async function replaceCart(req: Request, res: Response) {
     lines.map((line) => resolveCartPricing(line.package_id, line.cycle_id)),
   );
 
-  const previous = await models.Cart.find({ status: "cart" }).select("_id").lean();
+  const previous = await models.Cart.find({ status: "cart" })
+    .select("_id")
+    .lean();
 
   const created = priced.length
     ? await models.Cart.insertMany(
@@ -142,7 +156,9 @@ export async function replaceCart(req: Request, res: Response) {
 
   // Only drop the previous lines after the new ones are safely stored.
   if (previous.length) {
-    await models.Cart.deleteMany({ _id: { $in: previous.map((line) => line._id) } });
+    await models.Cart.deleteMany({
+      _id: { $in: previous.map((line) => line._id) },
+    });
   }
 
   return SuccessResponse(
@@ -206,7 +222,12 @@ export async function clearCart(req: Request, res: Response) {
     await models.Cart.deleteMany({ status: "cart" });
   }
 
-  return SuccessResponse(res, await buildCartPayload(models), 200, "Cart cleared successfully");
+  return SuccessResponse(
+    res,
+    await buildCartPayload(models),
+    200,
+    "Cart cleared successfully",
+  );
 }
 
 /**
@@ -219,21 +240,28 @@ export async function checkoutCart(req: Request, res: Response) {
   const models = tenantModels(req);
   const { club } = tenantContext(req);
 
-  const items = await models.Cart.find({ status: "cart" }).sort({ createdAt: 1 });
+  const items = await models.Cart.find({ status: "cart" }).sort({
+    createdAt: 1,
+  });
   if (!items.length) {
     throw new BadRequest("Your cart is empty");
   }
 
-  const paymentMethod = await PaymentMethod.findById(req.body.payment_method_id).lean();
+  const paymentMethod = await PaymentMethod.findById(
+    req.body.payment_method_id,
+  ).lean();
   if (!paymentMethod) throw new NotFound("Payment method not found");
-  if (!paymentMethod.status) throw new BadRequest("This payment method is not available");
+  if (!paymentMethod.status)
+    throw new BadRequest("This payment method is not available");
 
   const file = getUploadedImage(req);
   const uploadedProofUrl = file ? publicUploadUrl(file.filename) : null;
   const finalProof = uploadedProofUrl ?? req.body.payment_proof ?? null;
 
   if (!finalProof) {
-    throw new BadRequest("Payment proof is required (upload a file or provide an image URL)");
+    throw new BadRequest(
+      "Payment proof is required (upload a file or provide an image URL)",
+    );
   }
 
   const settings = await getOrCreateSettings();
@@ -264,7 +292,9 @@ export async function checkoutCart(req: Request, res: Response) {
   } catch (error) {
     // Roll back the orders created so far; the proof file is shared by all of them.
     if (created.length) {
-      await Order.deleteMany({ _id: { $in: created.map((order) => order._id) } });
+      await Order.deleteMany({
+        _id: { $in: created.map((order) => order._id) },
+      });
     }
     if (file) removeUploadedFile(file.path);
     throw error;
@@ -277,7 +307,10 @@ export async function checkoutCart(req: Request, res: Response) {
   const orders = (
     await Order.find({ _id: { $in: created.map((order) => order._id) } })
       .populate([
-        { path: "package_id", select: "name game_id teams players status cycles" },
+        {
+          path: "package_id",
+          select: "name game_id teams players status cycles",
+        },
         { path: "payment_method_id", select: "name description status" },
       ])
       .sort({ createdAt: 1 })
@@ -285,8 +318,9 @@ export async function checkoutCart(req: Request, res: Response) {
   ).map(attachCycle);
 
   const total = orders.reduce(
-    (sum, order) => sum + (order.final_price ?? order.price - order.discount + order.fine),
-    0
+    (sum, order) =>
+      sum + (order.final_price ?? order.price - order.discount + order.fine),
+    0,
   );
 
   return SuccessResponse(
@@ -298,6 +332,6 @@ export async function checkoutCart(req: Request, res: Response) {
       payment_proof: finalProof,
     },
     201,
-    "Order created and sent to the super admin for review"
+    "Order created and sent to the super admin for review",
   );
 }

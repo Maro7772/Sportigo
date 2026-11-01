@@ -10,7 +10,10 @@ import { buildPaginationMeta } from "../../utils/pagination";
 import { tenantContext, tenantModels } from "../../middlewares/tenant";
 import { resolveCartPricing } from "../../services/tenantCart.service";
 import { evaluateSubscription } from "../../services/subscription.service";
-import { buildInvoiceData, renderInvoiceHtml } from "../../services/invoice.service";
+import {
+  buildInvoiceData,
+  renderInvoiceHtml,
+} from "../../services/invoice.service";
 import { attachCycle } from "../../utils/orderView";
 import {
   getUploadedImage,
@@ -29,7 +32,7 @@ const SORT_FIELDS = [
 ];
 
 const ORDER_POPULATE = [
-  { path: "package_id", select: "name game_id teams players cycles" },
+  { path: "package_id", select: "name game_id teams players" },
   { path: "payment_method_id", select: "name description status" },
 ];
 
@@ -105,7 +108,13 @@ export async function purchasePackageDirectly(req: Request, res: Response) {
   const { club } = tenantContext(req);
   const models = tenantModels(req);
 
-  const { package_id, cycle_id, payment_method_id, notes, payment_proof: proofUrl } = req.body;
+  const {
+    package_id,
+    cycle_id,
+    payment_method_id,
+    notes,
+    payment_proof: proofUrl,
+  } = req.body;
 
   const [pricing, paymentMethod, settings] = await Promise.all([
     resolveCartPricing(package_id, cycle_id),
@@ -114,7 +123,8 @@ export async function purchasePackageDirectly(req: Request, res: Response) {
   ]);
 
   if (!paymentMethod) throw new NotFound("Payment method not found");
-  if (!paymentMethod.status) throw new BadRequest("This payment method is not currently available");
+  if (!paymentMethod.status)
+    throw new BadRequest("This payment method is not currently available");
 
   // Determine late renewal fine
   const subscription = evaluateSubscription(club, settings.allowed_days);
@@ -126,7 +136,9 @@ export async function purchasePackageDirectly(req: Request, res: Response) {
   const finalProof = uploadedProofUrl ?? proofUrl ?? null;
 
   if (!file && !proofUrl) {
-    throw new BadRequest("Payment proof is required (upload a file or provide an image URL)");
+    throw new BadRequest(
+      "Payment proof is required (upload a file or provide an image URL)",
+    );
   }
 
   let order: any;
@@ -174,7 +186,7 @@ export async function purchasePackageDirectly(req: Request, res: Response) {
       cart,
     },
     201,
-    "Package purchased successfully. Your order is pending super admin approval."
+    "Package purchased successfully. Your order is pending super admin approval.",
   );
 }
 
@@ -182,13 +194,16 @@ export async function purchasePackageDirectly(req: Request, res: Response) {
  * `POST /api/tenant/orders/:id/payment-proof` (multipart/form-data, field: `image`)
  * Uploads or replaces the payment receipt screenshot directly on an order.
  */
-export async function uploadTenantOrderPaymentProof(req: Request, res: Response) {
+export async function uploadTenantOrderPaymentProof(
+  req: Request,
+  res: Response,
+) {
   const { club } = tenantContext(req);
 
   const file = getUploadedImage(req);
   if (!file) {
     throw new BadRequest(
-      'No image uploaded. Send a multipart/form-data request with an "image" (or "file") field.'
+      'No image uploaded. Send a multipart/form-data request with an "image" (or "file") field.',
     );
   }
 
@@ -224,7 +239,7 @@ export async function uploadTenantOrderPaymentProof(req: Request, res: Response)
       payment_proof_url: absoluteUrl(req, url),
     },
     200,
-    "Payment proof uploaded successfully"
+    "Payment proof uploaded successfully",
   );
 }
 
@@ -235,7 +250,10 @@ export async function uploadTenantOrderPaymentProof(req: Request, res: Response)
 export async function getTenantOrderInvoice(req: Request, res: Response) {
   const { club } = tenantContext(req);
 
-  const invoice = await buildInvoiceData(String(req.params.id), String(club._id));
+  const invoice = await buildInvoiceData(
+    String(req.params.id),
+    String(club._id),
+  );
 
   const format = req.query.format;
   if (format === "html") {
@@ -254,7 +272,10 @@ export async function getTenantOrderInvoice(req: Request, res: Response) {
 export async function getTenantOrderInvoiceHtml(req: Request, res: Response) {
   const { club } = tenantContext(req);
 
-  const invoice = await buildInvoiceData(String(req.params.id), String(club._id));
+  const invoice = await buildInvoiceData(
+    String(req.params.id),
+    String(club._id),
+  );
   const html = renderInvoiceHtml(invoice);
 
   res.setHeader("Content-Type", "text/html; charset=utf-8");
