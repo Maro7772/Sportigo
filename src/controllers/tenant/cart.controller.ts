@@ -38,6 +38,7 @@ interface CartLineInput {
 
 function lineFromPricing(pricing: CartPricing, notes?: string | null) {
   return {
+    package_id: pricing.package._id,
     cycle_id: pricing.cycle._id ?? null,
     cycle_name: pricing.cycle_name,
     months: pricing.months,
