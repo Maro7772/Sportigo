@@ -240,10 +240,16 @@ export async function getDashboard(req: Request, res: Response) {
     recent_orders: recentOrders,
     upcoming_expirations: expiringRaw.map((club) => ({
       ...club,
-      days_left: club.end_date
+      days_left: (club.end_date ?? club.subscriptions?.[0]?.end_date)
         ? Math.max(
             0,
-            Math.ceil((new Date(club.end_date).getTime() - now.getTime()) / DAY_MS)
+            Math.ceil(
+              (new Date(
+                (club.end_date ?? club.subscriptions?.[0]?.end_date) as Date,
+              ).getTime() -
+                now.getTime()) /
+                DAY_MS,
+            )
           )
         : null,
     })),

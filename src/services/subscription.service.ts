@@ -164,11 +164,10 @@ export async function applyPaidOrder(
       return { applied: false, reason: "Club not found" };
     }
 
-    let totalMonths = 0;
-    let lastPackageId: Types.ObjectId | null = null;
+    const now = new Date();
 
     if (order.items?.length) {
-      // New shape: validate every package, then use each item's months snapshot.
+      // New shape: each item extends its own package subscription's endDate.
       const packageIds = order.items.map((item) => item.package_id);
       const existing = await Package.find({ _id: { $in: packageIds } })
         .select("_id")
@@ -191,8 +190,24 @@ export async function applyPaidOrder(
           };
         }
 
-        totalMonths += item.months;
-        lastPackageId = item.package_id;
+        // Find or create the subscription for this package.
+        if (!club.subscriptions) club.subscriptions = [];
+        let sub: any = club.subscriptions.find(
+          (s) => String(s.package_id) === String(item.package_id),
+        );
+        if (!sub) {
+          sub = { package_id: item.package_id, cycle_id: item.cycle_id ?? null, start_date: now, end_date: null } as any;
+          club.subscriptions.push(sub as any);
+        }
+        sub = sub as any;
+        const base =
+          sub.end_date && new Date(sub.end_date) > now
+            ? new Date(sub.end_date)
+            : now;
+        sub.end_date = addMonths(base, item.months);
+        if (!sub.start_date || new Date(sub.start_date) > now)
+          sub.start_date = now;
+        if (item.cycle_id) sub.cycle_id = item.cycle_id;
       }
     } else {
       // Legacy shape: single package + cycle on the order itself.
@@ -206,17 +221,36 @@ export async function applyPaidOrder(
         return { applied: false, reason: "Order has no valid package cycle" };
       }
 
-      totalMonths = cycle.months;
-      lastPackageId = order.package_id ?? null;
+      if (!club.subscriptions) club.subscriptions = [];
+      let sub: any = club.subscriptions.find(
+        (s) => String(s.package_id) === String(order.package_id),
+      );
+      if (!sub) {
+        sub = { package_id: order.package_id, cycle_id: order.cycle_id ?? null, start_date: now, end_date: null } as any;
+        club.subscriptions.push(sub);
+      }
+      const base =
+        sub.end_date && new Date(sub.end_date) > now
+          ? new Date(sub.end_date)
+          : now;
+      sub.end_date = addMonths(base, cycle.months);
+      if (!sub.start_date || new Date(sub.start_date) > now)
+        sub.start_date = now;
+      if (order.cycle_id) sub.cycle_id = order.cycle_id;
+
+      // Keep legacy fields in sync for the primary/first package.
+      club.package_id = order.package_id ?? null;
+      club.cycle_id = order.cycle_id ?? null;
+      club.start_date = club.start_date && club.start_date <= now ? club.start_date : now;
+      club.end_date = sub.end_date;
     }
 
-    const now = new Date();
-    const base = club.end_date && club.end_date > now ? club.end_date : now;
-    const newEndDate = addMonths(base, totalMonths);
-
-    if (lastPackageId) club.package_id = lastPackageId;
-    if (!club.start_date || club.start_date > now) club.start_date = now;
-    club.end_date = newEndDate;
+    // Keep legacy primary fields pointing at the last applied package for compat.
+    if (order.items?.length) {
+      const last = order.items[order.items.length - 1];
+      club.package_id = last.package_id;
+    }
+    if (!club.start_date || new Date(club.start_date) > now) club.start_date = now;
 
     await club.save();
 

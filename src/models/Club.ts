@@ -1,5 +1,12 @@
 import { Schema, model, type Model, type Types } from "mongoose";
 
+export interface IClubSubscription {
+  package_id: Types.ObjectId;
+  cycle_id?: Types.ObjectId | null;
+  start_date?: Date | null;
+  end_date?: Date | null;
+}
+
 export interface IClub {
   name: string;
   status: boolean;
@@ -9,6 +16,8 @@ export interface IClub {
   cycle_id?: Types.ObjectId | null;
   start_date?: Date | null;
   end_date?: Date | null;
+  /** Per-package subscriptions (a club can subscribe to multiple packages/games). */
+  subscriptions?: IClubSubscription[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -40,6 +49,20 @@ const clubSchema = new Schema<IClub, ClubModel>(
     },
     start_date: { type: Date, default: null },
     end_date: { type: Date, default: null, index: true },
+    subscriptions: {
+      type: [
+        new Schema<IClubSubscription>(
+          {
+            package_id: { type: Schema.Types.ObjectId, ref: "Package", required: true },
+            cycle_id: { type: Schema.Types.ObjectId, default: null },
+            start_date: { type: Date, default: null },
+            end_date: { type: Date, default: null },
+          },
+          { _id: true, versionKey: false },
+        ),
+      ],
+      default: [],
+    },
   },
   { timestamps: true, versionKey: false }
 );

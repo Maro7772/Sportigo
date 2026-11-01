@@ -22,12 +22,26 @@ async function assertGameExists(gameId: string): Promise<void> {
  * teams the club may own for that game (`package.teams`). The club subscription
  * therefore only grants teams inside the package's own game.
  */
-async function getPackageForGame(club: { package_id?: unknown }, gameId: string) {
-  if (!club.package_id) {
+async function getPackageForGame(club: { package_id?: unknown; subscriptions?: any[] }, gameId: string) {
+  // Try per-game subscription first.
+  const subs = club.subscriptions ?? [];
+  let candidateId: unknown = null;
+  if (subs.length) {
+    for (const sub of subs) {
+      const pkg = await Package.findById(sub.package_id).select("teams game_id").lean();
+      if (pkg && String(pkg.game_id) === String(gameId)) {
+        candidateId = sub.package_id;
+        break;
+      }
+    }
+  }
+  if (!candidateId) candidateId = club.package_id;
+
+  if (!candidateId) {
     throw new BadRequest("You must be subscribed to a package to add teams");
   }
 
-  const pkg = await Package.findById(club.package_id).select("teams game_id").lean();
+  const pkg = await Package.findById(candidateId).select("teams game_id").lean();
   if (!pkg) {
     throw new BadRequest("Your package no longer exists. Please renew your subscription");
   }
