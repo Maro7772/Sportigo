@@ -304,7 +304,7 @@ export async function checkoutCart(req: Request, res: Response) {
       .populate([
         {
           path: "package_id",
-          select: "name game_id teams players status cycles",
+          select: "name game_id teams players status",
         },
         { path: "payment_method_id", select: "name description status" },
       ])
