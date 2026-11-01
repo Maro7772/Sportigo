@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { idParamSchema, listQuerySchema, objectIdSchema } from "../common";
+import { objectIdSchema } from "../common";
 
 export const createCartSchema = z.object({
   body: z.object({
@@ -10,7 +10,6 @@ export const createCartSchema = z.object({
 });
 
 export const updateCartSchema = z.object({
-  params: idParamSchema.shape.params,
   body: z
     .object({
       package_id: objectIdSchema.optional(),
@@ -22,14 +21,9 @@ export const updateCartSchema = z.object({
     }),
 });
 
-export const listCartSchema = z.object({
-  query: listQuerySchema,
-});
-
 export const checkoutCartSchema = z.object({
   body: z.object({
     payment_method_id: objectIdSchema,
-    payment_reference: z.string().trim().max(200).optional(),
     payment_proof: z.string().trim().max(2000).optional(),
     notes: z.string().trim().max(1000).optional(),
   }),

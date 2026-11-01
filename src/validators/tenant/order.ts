@@ -6,7 +6,6 @@ export const purchaseOrderSchema = z.object({
     package_id: objectIdSchema,
     cycle_id: objectIdSchema.optional(),
     payment_method_id: objectIdSchema,
-    payment_reference: z.string().trim().max(200).optional(),
     payment_proof: z.string().trim().max(2000).optional(),
     notes: z.string().trim().max(1000).optional(),
   }),

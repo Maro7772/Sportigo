@@ -1,79 +1,64 @@
-import type { FilterQuery } from "mongoose";
 import type { Request, Response } from "express";
 import { Order, type IOrder } from "../../models/Order";
 import { Package } from "../../models/Package";
 import { PaymentMethod } from "../../models/PaymentMethod";
 import { getOrCreateSettings } from "../../models/Settings";
 import { evaluateSubscription } from "../../services/subscription.service";
-import { BadRequest, ConflictError, NotFound } from "../../errors";
+import { BadRequest, NotFound } from "../../errors";
 import { SuccessResponse } from "../../utils/response";
-import { buildListQuery } from "../../utils/listQuery";
-import { buildPaginationMeta } from "../../utils/pagination";
 import { tenantContext, tenantModels } from "../../middlewares/tenant";
 import { getUploadedImage, publicUploadUrl, removeUploadedFile } from "../../config/upload";
-import type { ICart } from "../../models/tenant";
 import { resolveCartPricing } from "../../services/tenantCart.service";
-import { filterById } from "./helpers";
 
-const SORT_FIELDS = ["createdAt", "updatedAt", "final_price", "months"];
+/**
+ * Each club owns exactly **one cart** (inside its own tenant database), so the
+ * cart endpoints never take an item id: they always read/write the single
+ * document with `status: "cart"`.
+ */
 
 /** `GET /api/tenant/cart` (collection: `order-cart`) */
-export async function listCart(req: Request, res: Response) {
+export async function getCart(req: Request, res: Response) {
   const models = tenantModels(req);
 
-  const { filter, page, limit, skip, sort } = buildListQuery(req, {
-    sortFields: SORT_FIELDS,
-    defaultSort: "createdAt",
-    defaultOrder: -1,
-  });
-
-  const status = req.query.status;
-  if (typeof status === "string" && status.trim()) filter.status = status.trim();
-
-  const [items, total] = await Promise.all([
-    models.Cart.find(filter as FilterQuery<ICart>)
-      .sort(sort)
-      .skip(skip)
-      .limit(limit)
-      .lean(),
-    models.Cart.countDocuments(filter as FilterQuery<ICart>),
-  ]);
-
-  const packageIds = [...new Set(items.map((item) => String(item.package_id)))];
-  const packages = await Package.find({ _id: { $in: packageIds } })
-    .select("name game_id teams players")
+  const cart = await models.Cart.findOne({ status: "cart" })
+    .sort({ createdAt: -1 })
     .lean();
-  const packageById = new Map(packages.map((pkg) => [String(pkg._id), pkg]));
 
-  const enriched = items.map((item) => ({
-    ...item,
-    package: packageById.get(String(item.package_id)) ?? null,
-  }));
+  const pkg = cart
+    ? await Package.findById(cart.package_id)
+        .select("name game_id teams players cycles")
+        .lean()
+    : null;
 
-  return SuccessResponse(res, {
-    items: enriched,
-    pagination: buildPaginationMeta(total, page, limit),
-  });
+  return SuccessResponse(res, { cart: cart ?? null, package: pkg });
 }
 
-/** `GET /api/tenant/cart/:id` */
-export async function getCartItem(req: Request, res: Response) {
-  const models = tenantModels(req);
-
-  const cart = await models.Cart.findById(req.params.id).lean();
-  if (!cart) throw new NotFound("Cart item not found");
-
-  const pkg = await Package.findById(cart.package_id).lean();
-  const order = cart.order_id ? await Order.findById(cart.order_id).lean() : null;
-
-  return SuccessResponse(res, { cart, package: pkg, order });
-}
-
-/** `POST /api/tenant/cart` */
-export async function createCartItem(req: Request, res: Response) {
+/**
+ * `POST /api/tenant/cart`
+ * Adds the selected package/cycle to the club's cart. Because a club has a
+ * single cart, a second POST updates the existing one instead of adding a row.
+ */
+export async function saveCartItem(req: Request, res: Response) {
   const models = tenantModels(req);
 
   const pricing = await resolveCartPricing(req.body.package_id, req.body.cycle_id);
+
+  const existing = await models.Cart.findOne({ status: "cart" });
+
+  if (existing) {
+    existing.package_id = pricing.package._id;
+    existing.cycle_id = pricing.cycle._id ?? null;
+    existing.cycle_name = pricing.cycle_name;
+    existing.months = pricing.months;
+    existing.price = pricing.price;
+    existing.discount = pricing.discount;
+    existing.discount_type = pricing.discount_type;
+    if (req.body.notes !== undefined) existing.notes = req.body.notes;
+
+    await existing.save();
+
+    return SuccessResponse(res, { cart: existing }, 200, "Cart item updated successfully");
+  }
 
   const cart = await models.Cart.create({
     package_id: pricing.package._id,
@@ -90,22 +75,29 @@ export async function createCartItem(req: Request, res: Response) {
   return SuccessResponse(res, { cart }, 201, "Cart item created successfully");
 }
 
-/** `PUT|PATCH /api/tenant/cart/:id` */
+/** `PUT|PATCH /api/tenant/cart` */
 export async function updateCartItem(req: Request, res: Response) {
   const models = tenantModels(req);
 
-  const cart = await models.Cart.findById(req.params.id);
-  if (!cart) throw new NotFound("Cart item not found");
+  const cart = await models.Cart.findOne({ status: "cart" });
+  if (!cart) throw new NotFound("Your cart is empty");
 
-  if (cart.status !== "cart") {
-    throw new ConflictError(`This cart item is already ${cart.status} and cannot be edited`);
-  }
+  const packageChanged =
+    req.body.package_id !== undefined &&
+    String(req.body.package_id) !== String(cart.package_id);
 
   if (req.body.package_id !== undefined || req.body.cycle_id !== undefined) {
-    const pricing = await resolveCartPricing(
-      req.body.package_id ?? String(cart.package_id),
-      req.body.cycle_id ?? (cart.cycle_id ? String(cart.cycle_id) : undefined)
-    );
+    const packageId = req.body.package_id ?? String(cart.package_id);
+    const cycleId =
+      req.body.cycle_id !== undefined
+        ? req.body.cycle_id
+        : packageChanged
+          ? undefined
+          : cart.cycle_id
+            ? String(cart.cycle_id)
+            : undefined;
+
+    const pricing = await resolveCartPricing(packageId, cycleId);
 
     cart.package_id = pricing.package._id;
     cart.cycle_id = pricing.cycle._id ?? null;
@@ -123,54 +115,23 @@ export async function updateCartItem(req: Request, res: Response) {
   return SuccessResponse(res, { cart }, 200, "Cart item updated successfully");
 }
 
-/** `DELETE /api/tenant/cart/:id` */
-export async function deleteCartItem(req: Request, res: Response) {
+/** `DELETE /api/tenant/cart` */
+export async function clearCart(req: Request, res: Response) {
   const models = tenantModels(req);
 
-  const cart = await models.Cart.findById(req.params.id);
-  if (!cart) throw new NotFound("Cart item not found");
-
-  if (cart.status === "checked_out") {
-    throw new ConflictError("This cart item was already checked out and cannot be deleted");
-  }
+  const cart = await models.Cart.findOne({ status: "cart" });
+  if (!cart) throw new NotFound("Your cart is empty");
 
   await cart.deleteOne();
 
-  return SuccessResponse(res, { id: req.params.id }, 200, "Cart item deleted successfully");
-}
-
-/** `POST /api/tenant/cart/bulk-delete` */
-export async function bulkDeleteCart(req: Request, res: Response) {
-  const models = tenantModels(req);
-  const ids: string[] = req.body.ids;
-
-  const checkedOut = await models.Cart.countDocuments({
-    _id: { $in: ids },
-    status: "checked_out",
-  });
-
-  if (checkedOut > 0) {
-    throw new ConflictError(
-      `Cannot delete: ${checkedOut} cart item(s) were already checked out`
-    );
-  }
-
-  const result = await models.Cart.deleteMany({ _id: { $in: ids } });
-
-  return SuccessResponse(
-    res,
-    { deletedCount: result.deletedCount },
-    200,
-    `${result.deletedCount} cart item(s) deleted successfully`
-  );
+  return SuccessResponse(res, { cleared: true }, 200, "Cart cleared successfully");
 }
 
 /**
  * `POST /api/tenant/cart/checkout`
- * Checks out **every** item currently in the cart (status `cart`):
- * creates one central `Order` per item (status `pending`) that the super admin
- * reviews, then removes those items from the cart.
- * The subscription is extended only after the super admin approves the orders.
+ * Checks out the club's cart: creates one central `Order` (status `pending`)
+ * that the super admin reviews, then clears the cart.
+ * The subscription is extended only after the super admin approves the order.
  */
 export async function checkoutCart(req: Request, res: Response) {
   const models = tenantModels(req);
@@ -198,7 +159,6 @@ export async function checkoutCart(req: Request, res: Response) {
   // The late-renewal fine is charged once per checkout, not once per cart item.
   const fine = subscription.is_late_renewal ? settings.fines : 0;
 
-  const paymentReference = req.body.payment_reference ?? null;
   const notes = req.body.notes ?? null;
 
   const created: IOrder[] = [];
@@ -215,7 +175,6 @@ export async function checkoutCart(req: Request, res: Response) {
         fine: index === 0 ? fine : 0,
         status: "pending",
         payment_proof: finalProof,
-        payment_reference: paymentReference,
         notes: notes ?? item.notes ?? null,
       });
       created.push(order);

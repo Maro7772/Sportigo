@@ -4930,7 +4930,8 @@
         "tags": [
           "Tenant - Cart & Checkout"
         ],
-        "summary": "List Cart Items",
+        "summary": "Get the Cart",
+        "description": "Returns the club's single cart (or `cart: null` when it is empty) together with the central package/cycles.",
         "security": [
           {
             "TenantAuth": []
@@ -4939,109 +4940,31 @@
             "TenantSubdomain": []
           }
         ],
-        "parameters": [
-          {
-            "name": "page",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "default": 1
-            },
-            "description": "Page number"
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "default": 10
-            },
-            "description": "Items per page (max 100)"
-          },
-          {
-            "name": "search",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Keyword search"
-          },
-          {
-            "name": "sort_by",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "default": "createdAt"
-            },
-            "description": "Field to sort by"
-          },
-          {
-            "name": "order",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "asc",
-                "desc"
-              ],
-              "default": "desc"
-            },
-            "description": "Sort direction"
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "schema": {
-              "type": "boolean"
-            },
-            "description": "Filter by active status (true/false)"
-          }
-        ],
         "responses": {
           "200": {
-            "description": "Paginated list result",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
+                "example": {
+                  "success": true,
+                  "data": {
+                    "cart": {
+                      "_id": "6ae2e88d1540b80d32644b57",
+                      "package_id": "6ae2e6e0a8448da0f3c60dd0",
+                      "cycle_name": "Quarterly",
+                      "months": 3,
+                      "price": 5000,
+                      "discount": 500,
+                      "final_price": 4500,
+                      "status": "cart"
                     },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "items": {
-                          "type": "array",
-                          "items": {
-                            "type": "object"
-                          },
-                          "example": [
-                            {
-                              "_id": "6ae2e88d1540b80d32644b57",
-                              "package_id": "6ae2e6e0a8448da0f3c60dd0",
-                              "cycle_name": "Quarterly",
-                              "months": 3,
-                              "price": 5000,
-                              "discount": 500,
-                              "final_price": 4500,
-                              "status": "cart"
-                            }
-                          ]
-                        },
-                        "pagination": {
-                          "$ref": "#/components/schemas/PaginationMeta"
-                        }
-                      }
+                    "package": {
+                      "_id": "6ae2e6e0a8448da0f3c60dd0",
+                      "name": "Football Pro"
                     }
                   }
                 }
               }
             }
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
           }
         }
       },
@@ -5049,7 +4972,8 @@
         "tags": [
           "Tenant - Cart & Checkout"
         ],
-        "summary": "Add Package to Cart",
+        "summary": "Add Package to the Cart",
+        "description": "A club has a single cart: when it already exists the same endpoint updates it and returns 200 instead of creating another row.",
         "security": [
           {
             "TenantAuth": []
@@ -5113,14 +5037,13 @@
             "$ref": "#/components/responses/NotFound"
           }
         }
-      }
-    },
-    "/api/tenant/cart/{id}/checkout": {
-      "post": {
+      },
+      "put": {
         "tags": [
           "Tenant - Cart & Checkout"
         ],
-        "summary": "Checkout Cart Item -> Pending Order",
+        "summary": "Update the Cart",
+        "description": "Updates the club's single cart. Sending `package_id` and/or `cycle_id` re-resolves the pricing from the central package.",
         "security": [
           {
             "TenantAuth": []
@@ -5129,16 +5052,198 @@
             "TenantSubdomain": []
           }
         ],
-        "parameters": [
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "package_id": "6ae2e6e0a8448da0f3c60dd0",
+                  "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
+                  "notes": "Switched to the annual cycle"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "cart": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b57",
+                            "final_price": 14400
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Tenant - Cart & Checkout"
+        ],
+        "summary": "Update the Cart (alias)",
+        "description": "Same handler as `PUT /api/tenant/cart`.",
+        "security": [
           {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "example": "6ae2e6e0a8448da0f3c60dc0"
-            },
-            "description": "MongoDB ObjectId of the resource"
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Request Payload",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "notes": "Please call before 5pm"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "cart": {
+                          "type": "object",
+                          "example": {
+                            "_id": "6ae2e88d1540b80d32644b57"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Tenant - Cart & Checkout"
+        ],
+        "summary": "Clear the Cart",
+        "description": "Deletes the club's single cart item. 404 when the cart is already empty.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Cart cleared successfully"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "cleared": {
+                          "type": "object",
+                          "example": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/tenant/cart/checkout": {
+      "post": {
+        "tags": [
+          "Tenant - Cart & Checkout"
+        ],
+        "summary": "Checkout the Cart -> Pending Order",
+        "description": "Creates a central `pending` order for the club's cart (no cart id needed) and clears the cart. The late-renewal fine (if any) is charged once. The subscription is extended only after the super admin approves the order. `payment_method_id` and a payment proof (file or URL) are required.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
           }
         ],
         "requestBody": {
@@ -5150,8 +5255,7 @@
                 "type": "object",
                 "example": {
                   "payment_method_id": "6ae2e6e0a8448da0f3c60df0",
-                  "payment_proof": "https://example.com/proofs/receipt.jpg",
-                  "payment_reference": "REF-12345"
+                  "payment_proof": "https://example.com/proofs/receipt.jpg"
                 }
               }
             }
@@ -5165,15 +5269,16 @@
                   "success": true,
                   "message": "Order created and sent to the super admin for review",
                   "data": {
-                    "cart": {
-                      "_id": "6ae2e88d1540b80d32644b57",
-                      "status": "checked_out"
-                    },
-                    "order": {
-                      "_id": "6ae2e88d1540b80d32644b80",
-                      "order_number": "ORD-2026-000001",
-                      "status": "pending"
-                    }
+                    "orders": [
+                      {
+                        "_id": "6ae2e88d1540b80d32644b80",
+                        "order_number": "ORD-2026-000001",
+                        "status": "pending"
+                      }
+                    ],
+                    "count": 1,
+                    "total": 4500,
+                    "payment_proof": "https://example.com/proofs/receipt.jpg"
                   }
                 }
               }
@@ -5241,11 +5346,110 @@
           }
         }
       },
+      "post": {
+        "tags": [
+          "Tenant - Settings & Branding"
+        ],
+        "summary": "Update Club Branding (Colors/Logo URL or file)",
+        "description": "Accepts JSON (`logo` URL + colors) or multipart/form-data (logo file in `image`/`file` + colors) in the same request.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "Send as JSON (URL) or multipart/form-data (file upload).",
+          "required": false,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "logo": {
+                    "type": "string",
+                    "description": "Logo URL. Alternatively upload a file in the `image`/`file` field.",
+                    "example": "/uploads/club-logo.png"
+                  },
+                  "background_color": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "example": [
+                      "#e11d48",
+                      "#9f1239"
+                    ]
+                  },
+                  "color": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "example": [
+                      "#ffffff"
+                    ]
+                  },
+                  "image": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Logo image file (multipart/form-data)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "settings": {
+                          "type": "object",
+                          "example": {
+                            "background_color": [
+                              "#e11d48",
+                              "#9f1239"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
       "put": {
         "tags": [
           "Tenant - Settings & Branding"
         ],
-        "summary": "Update Club Branding (Colors/Logo URL)",
+        "summary": "Update Club Branding (alias)",
+        "description": "Same handler as `POST /api/tenant/settings`.",
         "security": [
           {
             "TenantAuth": []
@@ -5392,81 +5596,6 @@
                             "background_color": [
                               "#e11d48"
                             ]
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          }
-        }
-      }
-    },
-    "/api/tenant/settings/logo": {
-      "post": {
-        "tags": [
-          "Tenant - Settings & Branding"
-        ],
-        "summary": "Upload Club Logo",
-        "security": [
-          {
-            "TenantAuth": []
-          },
-          {
-            "TenantSubdomain": []
-          }
-        ],
-        "requestBody": {
-          "description": "Upload file (multipart/form-data)",
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "image": {
-                    "type": "string",
-                    "format": "binary",
-                    "description": "Image file (.png, .jpg, .jpeg, .webp, max 5MB)"
-                  }
-                },
-                "required": [
-                  "image"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "settings": {
-                          "type": "object",
-                          "example": {
-                            "logo": "/uploads/club-logo.png"
                           }
                         }
                       }
@@ -7027,6 +7156,120 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/tenant/matches/players-actions": {
+      "get": {
+        "tags": [
+          "Tenant - Matches"
+        ],
+        "summary": "All Matches: Players & Action Counts",
+        "description": "Groups every `player-progress` row by match, then by player, returning each player's actions with their counts.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "data": {
+                    "items": [
+                      {
+                        "match": {
+                          "id": "6ae2e88d1540b80d32644b00",
+                          "name": "League Final Round"
+                        },
+                        "players_actions": [
+                          {
+                            "player": {
+                              "id": "6ae2e88d1540b80d32644ae7",
+                              "name": "Mohamed Salah"
+                            },
+                            "actions": [
+                              {
+                                "id": "6ae2e6e0a8448da0f3c60d00",
+                                "name": "Goal",
+                                "count": 2
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tenant/matches/{id}/players-actions": {
+      "get": {
+        "tags": [
+          "Tenant - Matches"
+        ],
+        "summary": "One Match: Players & Action Counts",
+        "description": "Same grouping as `/matches/players-actions` but for a single match. 404 when the match does not exist.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "6ae2e6e0a8448da0f3c60dc0"
+            },
+            "description": "MongoDB ObjectId of the resource"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "data": {
+                    "match": {
+                      "id": "6ae2e88d1540b80d32644b00",
+                      "name": "League Final Round"
+                    },
+                    "players_actions": [
+                      {
+                        "player": {
+                          "id": "6ae2e88d1540b80d32644ae7",
+                          "name": "Mohamed Salah"
+                        },
+                        "actions": [
+                          {
+                            "id": "6ae2e6e0a8448da0f3c60d00",
+                            "name": "Goal",
+                            "count": 2
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -9428,498 +9671,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          }
-        }
-      }
-    },
-    "/api/tenant/cart/bulk-delete": {
-      "post": {
-        "tags": [
-          "Tenant - Cart & Checkout"
-        ],
-        "summary": "Bulk Delete Cart Items",
-        "description": "Deletes every document whose id is in `ids`.",
-        "security": [
-          {
-            "TenantAuth": []
-          },
-          {
-            "TenantSubdomain": []
-          }
-        ],
-        "requestBody": {
-          "description": "Request Payload",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "example": {
-                  "ids": [
-                    "6ae2e88d1540b80d32644b57"
-                  ]
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Deleted documents count",
-            "content": {
-              "application/json": {
-                "example": {
-                  "success": true,
-                  "message": "1 cart item(s) deleted successfully",
-                  "data": {
-                    "deletedCount": 1
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        }
-      }
-    },
-    "/api/tenant/cart/bulk": {
-      "delete": {
-        "tags": [
-          "Tenant - Cart & Checkout"
-        ],
-        "summary": "Bulk Delete Cart Items (alias)",
-        "description": "Same handler as `POST /api/tenant/cart/bulk-delete`, kept for clients that prefer `DELETE`.",
-        "security": [
-          {
-            "TenantAuth": []
-          },
-          {
-            "TenantSubdomain": []
-          }
-        ],
-        "requestBody": {
-          "description": "Request Payload",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "example": {
-                  "ids": [
-                    "6ae2e88d1540b80d32644b57"
-                  ]
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Deleted documents count",
-            "content": {
-              "application/json": {
-                "example": {
-                  "success": true,
-                  "message": "1 cart item(s) deleted successfully",
-                  "data": {
-                    "deletedCount": 1
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          }
-        }
-      }
-    },
-    "/api/tenant/cart/{id}": {
-      "get": {
-        "tags": [
-          "Tenant - Cart & Checkout"
-        ],
-        "summary": "Get Cart Item",
-        "security": [
-          {
-            "TenantAuth": []
-          },
-          {
-            "TenantSubdomain": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "example": "6ae2e6e0a8448da0f3c60dc0"
-            },
-            "description": "MongoDB ObjectId of the resource"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "cart": {
-                          "type": "object",
-                          "example": {
-                            "_id": "6ae2e88d1540b80d32644b57",
-                            "status": "cart",
-                            "final_price": 4500
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "Tenant - Cart & Checkout"
-        ],
-        "summary": "Update Cart Item",
-        "security": [
-          {
-            "TenantAuth": []
-          },
-          {
-            "TenantSubdomain": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "example": "6ae2e6e0a8448da0f3c60dc0"
-            },
-            "description": "MongoDB ObjectId of the resource"
-          }
-        ],
-        "requestBody": {
-          "description": "Request Payload",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "example": {
-                  "package_id": "6ae2e6e0a8448da0f3c60dd0",
-                  "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
-                  "notes": "Switched to the annual cycle"
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "cart": {
-                          "type": "object",
-                          "example": {
-                            "_id": "6ae2e88d1540b80d32644b57",
-                            "final_price": 14400
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          }
-        }
-      },
-      "patch": {
-        "tags": [
-          "Tenant - Cart & Checkout"
-        ],
-        "summary": "Update Cart Item (alias)",
-        "description": "Same handler as `PUT /api/tenant/cart/{id}`.",
-        "security": [
-          {
-            "TenantAuth": []
-          },
-          {
-            "TenantSubdomain": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "example": "6ae2e6e0a8448da0f3c60dc0"
-            },
-            "description": "MongoDB ObjectId of the resource"
-          }
-        ],
-        "requestBody": {
-          "description": "Request Payload",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "example": {
-                  "notes": "Please call before 5pm"
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "cart": {
-                          "type": "object",
-                          "example": {
-                            "_id": "6ae2e88d1540b80d32644b57"
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "Tenant - Cart & Checkout"
-        ],
-        "summary": "Remove Cart Item",
-        "security": [
-          {
-            "TenantAuth": []
-          },
-          {
-            "TenantSubdomain": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "example": "6ae2e6e0a8448da0f3c60dc0"
-            },
-            "description": "MongoDB ObjectId of the resource"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Cart item deleted successfully"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "id": {
-                          "type": "object",
-                          "example": "6ae2e88d1540b80d32644b57"
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          }
-        }
-      }
-    },
-    "/api/tenant/cart/{id}/payment-proof": {
-      "post": {
-        "tags": [
-          "Tenant - Cart & Checkout"
-        ],
-        "summary": "Upload Payment Proof for a Cart Item",
-        "security": [
-          {
-            "TenantAuth": []
-          },
-          {
-            "TenantSubdomain": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "example": "6ae2e6e0a8448da0f3c60dc0"
-            },
-            "description": "MongoDB ObjectId of the resource"
-          }
-        ],
-        "requestBody": {
-          "description": "Upload file (multipart/form-data)",
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "payment_proof": {
-                    "type": "string",
-                    "format": "binary",
-                    "description": "Image file (.png, .jpg, .jpeg, .webp, max 5MB)"
-                  }
-                },
-                "required": [
-                  "payment_proof"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "cart": {
-                          "type": "object",
-                          "example": {
-                            "_id": "6ae2e88d1540b80d32644b57",
-                            "payment_proof": "/uploads/proof-club-123.png"
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
           }
         }
       }

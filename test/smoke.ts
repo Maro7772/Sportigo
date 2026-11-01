@@ -1009,7 +1009,8 @@ async function main(): Promise<void> {
 
     const logoForm = new FormData();
     logoForm.append("image", new Blob([png], { type: "image/png" }), "logo.png");
-    const logoUpload = await fetch(`${base}/tenant/settings/logo`, {
+    logoForm.append("color", "#22c55e");
+    const logoUpload = await fetch(`${base}/tenant/settings`, {
       method: "POST",
       headers: tenantHeaders,
       body: logoForm,
@@ -1020,10 +1021,11 @@ async function main(): Promise<void> {
       "tenant logo saved as a local url",
       String(logoBody?.data?.settings?.logo ?? "").startsWith("/uploads/")
     );
-    fs.rmSync(
-      path.join(uploadsDir, String(logoBody?.data?.settings?.logo ?? "").replace("/uploads/", "")),
-      { force: true }
-    );
+    eq("logo upload also saves the colors", logoBody?.data?.settings?.color?.[0], "#22c55e");
+    const logoPath = String(logoBody?.data?.settings?.logo ?? "");
+    if (logoPath.startsWith("/uploads/")) {
+      fs.rmSync(path.join(uploadsDir, logoPath.replace("/uploads/", "")), { force: true });
+    }
 
     console.log("\n▶ Tenant admins & roles");
     const coachAdmin = await api("POST", "/tenant/admins", {
@@ -1186,18 +1188,19 @@ async function main(): Promise<void> {
     eq("create tenant team -> 201", team1.status, 201);
     const team1Id: string = team1.body?.data?.team?._id;
 
+    // Checked before the quota is full so the duplicate error is the one returned.
+    const duplicateTeam = await api("POST", "/tenant/teams", {
+      headers: tenantHeaders,
+      body: { name: "First Team", game_id: basketballId },
+    });
+    eq("duplicate team name in the same game -> 409", duplicateTeam.status, 409);
+
     const team2 = await api("POST", "/tenant/teams", {
       headers: tenantHeaders,
       body: { name: "U18", game_id: basketballId },
     });
     eq("create second tenant team -> 201", team2.status, 201);
     const team2Id: string = team2.body?.data?.team?._id;
-
-    const duplicateTeam = await api("POST", "/tenant/teams", {
-      headers: tenantHeaders,
-      body: { name: "First Team", game_id: basketballId },
-    });
-    eq("duplicate team name in the same game -> 409", duplicateTeam.status, 409);
 
     const missingGame = await api("POST", "/tenant/teams", {
       headers: tenantHeaders,
@@ -1287,6 +1290,20 @@ async function main(): Promise<void> {
       (game: any) => game.name === "Football"
     )._id;
 
+    // The package defines the game and the team quota, so the club cannot open
+    // teams for another game nor exceed the package's team limit.
+    const wrongGameTeam = await api("POST", "/tenant/teams", {
+      headers: tenantHeaders,
+      body: { name: "Football Team", game_id: footballGameId },
+    });
+    eq("team outside the package game -> 400", wrongGameTeam.status, 400);
+
+    const overLimitTeam = await api("POST", "/tenant/teams", {
+      headers: tenantHeaders,
+      body: { name: "Over the Limit", game_id: basketballId },
+    });
+    eq("package team limit is enforced -> 400", overLimitTeam.status, 400);
+
     const basketballActionId = (
       await api("POST", "/actions", {
         token,
@@ -1370,12 +1387,16 @@ async function main(): Promise<void> {
     });
     eq("team players counter is decremented", teamAfterDelete.body?.data?.team?.players, 0);
 
-    console.log("\n▶ Tenant cart & checkout");
+    console.log("\n▶ Tenant cart & checkout (one cart per club, no ids)");
+    const emptyCart = await api("GET", "/tenant/cart", { headers: tenantHeaders });
+    eq("empty cart -> 200", emptyCart.status, 200);
+    eq("empty cart returns null", emptyCart.body?.data?.cart, null);
+
     const cart = await api("POST", "/tenant/cart", {
       headers: tenantHeaders,
       body: { package_id: packageId, cycle_id: cycleId },
     });
-    eq("create cart item -> 201", cart.status, 201);
+    eq("add package to cart -> 201", cart.status, 201);
     const cartId: string = cart.body?.data?.cart?._id;
     eq(
       "cart final price = price - discount",
@@ -1384,27 +1405,50 @@ async function main(): Promise<void> {
     );
     check("cart stores the duration in months", cart.body?.data?.cart?.months >= 1);
 
-    const checkout = await api("POST", `/tenant/cart/${cartId}/checkout`, {
+    const cartAgain = await api("POST", "/tenant/cart", {
+      headers: tenantHeaders,
+      body: { package_id: packageId, cycle_id: cycleId },
+    });
+    eq("second add updates the single cart -> 200", cartAgain.status, 200);
+    eq("the club keeps one cart", cartAgain.body?.data?.cart?._id, cartId);
+
+    const cartGet = await api("GET", "/tenant/cart", { headers: tenantHeaders });
+    eq("get cart -> 200", cartGet.status, 200);
+    eq("get cart returns the same document", cartGet.body?.data?.cart?._id, cartId);
+    check("cart is enriched with the package", Boolean(cartGet.body?.data?.package?.name));
+
+    const cartUpdate = await api("PATCH", "/tenant/cart", {
+      headers: tenantHeaders,
+      body: { notes: "Please call before 5pm" },
+    });
+    eq("update cart without an id -> 200", cartUpdate.status, 200);
+    eq("cart notes are saved", cartUpdate.body?.data?.cart?.notes, "Please call before 5pm");
+
+    const checkout = await api("POST", "/tenant/cart/checkout", {
       headers: tenantHeaders,
       body: { payment_method_id: paymentMethodId, payment_proof: "https://example.com/proofs/cart.jpg" },
     });
     eq("checkout -> 201", checkout.status, 201);
-    eq("checkout creates a pending order", checkout.body?.data?.order?.status, "pending");
+    eq("checkout creates one pending order", checkout.body?.data?.count, 1);
+    eq("checkout order is pending", checkout.body?.data?.orders?.[0]?.status, "pending");
     check(
       "checkout order has an order number",
-      String(checkout.body?.data?.order?.order_number).startsWith("ORD-")
+      String(checkout.body?.data?.orders?.[0]?.order_number).startsWith("ORD-")
     );
-    eq("cart is marked as checked out", checkout.body?.data?.cart?.status, "checked_out");
+    const checkoutOrderId: string = checkout.body?.data?.orders?.[0]?._id;
 
-    const checkoutAgain = await api("POST", `/tenant/cart/${cartId}/checkout`, {
+    const cartAfterCheckout = await api("GET", "/tenant/cart", { headers: tenantHeaders });
+    eq("checkout clears the cart", cartAfterCheckout.body?.data?.cart, null);
+
+    const checkoutAgain = await api("POST", "/tenant/cart/checkout", {
       headers: tenantHeaders,
       body: { payment_method_id: paymentMethodId, payment_proof: "https://example.com/proofs/cart.jpg" },
     });
-    eq("checkout twice -> 409", checkoutAgain.status, 409);
+    eq("checkout an empty cart -> 400", checkoutAgain.status, 400);
 
     const tenantProofForm = new FormData();
     tenantProofForm.append("image", new Blob([png], { type: "image/png" }), "club-proof.png");
-    const tenantProof = await fetch(`${base}/tenant/cart/${cartId}/payment-proof`, {
+    const tenantProof = await fetch(`${base}/tenant/orders/${checkoutOrderId}/payment-proof`, {
       method: "POST",
       headers: tenantHeaders,
       body: tenantProofForm,
@@ -1689,6 +1733,21 @@ async function main(): Promise<void> {
       "expired club response lists renewal packages",
       Array.isArray(expiredTeams.body?.error?.details?.packages)
     );
+
+    const expiredProgressRead = await api("GET", "/tenant/player-progress", {
+      headers: expiredHeaders,
+    });
+    eq("expired club cannot read player progress -> 403", expiredProgressRead.status, 403);
+
+    const expiredProgressWrite = await api("POST", "/tenant/player-progress", {
+      headers: expiredHeaders,
+      body: {
+        match_id: "0123456789abcdef01234567",
+        action_id: "0123456789abcdef01234567",
+        player_id: "0123456789abcdef01234567",
+      },
+    });
+    eq("expired club cannot add player progress -> 403", expiredProgressWrite.status, 403);
 
     const expiredCart = await api("GET", "/tenant/cart", { headers: expiredHeaders });
     eq("expired club can still open its cart to renew -> 200", expiredCart.status, 200);

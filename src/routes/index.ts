@@ -48,6 +48,5 @@ router.use("/payment-methods", paymentMethodRoutes);
 router.use("/settings", settingsRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/uploads", uploadRoutes);
-router.use("/tenant", tenantRoutes);
 
 export default router;

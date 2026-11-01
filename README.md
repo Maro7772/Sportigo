@@ -459,7 +459,7 @@ curl -X POST http://localhost:4000/api/tenant/auth/login \
 | إضافة/تعديل/حذف teams / players / matches / player-progress | ✅ | ✅ | ❌ |
 | قراءة settings / info | ✅ | ✅ | ✅ |
 | تعديل settings / رفع اللوجو | ✅ | ❌ | ❌ |
-| cart / checkout / إثبات الدفع | ✅ | ❌ | ❌ |
+| cart / checkout | ✅ | ❌ | ❌ |
 | إدارة الـ admins (`/api/tenant/admins`) | ✅ | ❌ | ❌ |
 
 **أول أدمن في كل نادي:**
@@ -498,7 +498,10 @@ curl -X POST http://localhost:4000/api/tenant/auth/login \
 | `notes` | string | |
 
 > **الأسعار مش بتيجي من الكلاينت أبدًا** — بتتحسب من الـ cycle بتاعة الباكدج المركزية.
-> الـ checkout بيعمل `Order` مركزي بحالة **`pending`**، والاشتراك بيتمدد بس بعد موافقة السوبر أدمن.
+> **كل نادي عنده سلة واحدة بس** (document واحد بحالة `cart`)، فكل endpoints السلة
+> مبتاخدش `id`: `POST /cart` بيعمل create أو update لنفس السلة.
+> الـ checkout بيعمل `Order` مركزي بحالة **`pending`** وبيفضّي السلة،
+> والاشتراك بيتمدد بس بعد موافقة السوبر أدمن.
 
 #### `settings` (document واحد لكل نادي)
 | Field | Type |
@@ -553,7 +556,10 @@ curl -X POST http://localhost:4000/api/tenant/auth/login \
 - **مش مسموح تحذف Team** عنده players أو matches → `409`.
 - **مش مسموح تحذف Player** عنده player-progress → `409`.
 - **مش مسموح تحذف Match** عنده player-progress → `409`.
-- **مش مسموح تحذف/تعدّل cart** اتعملّه checkout → `409`.
+- **الفرق محدودة بالباكدج**: الباكدج مربوطة بلعبة واحدة (`package.game_id`) وليها حد أقصى
+  للفرق (`package.teams`) — أي فريق للعبة تانية → `400`، وتجاوز العدد → `400`.
+  نفس القاعدة بتتطبق لو غيّرت لعبة فريق موجود.
+- **اللاعبين محدودين بالباكدج**: `package.players` هو أقصى عدد لاعبين **في الفريق الواحد**.
 - `team.players` بيتزامن تلقائيًا مع أي إضافة/تعديل/حذف لاعب.
 
 ### الـ Endpoints
@@ -565,15 +571,17 @@ curl -X POST http://localhost:4000/api/tenant/auth/login \
 |---|---|---|
 | GET | `/api/tenant/info` | بيانات النادي + الاشتراك + اسم الـ database + الإعدادات + عدد المستندات |
 | GET | `/api/tenant/settings` | إعدادات النادي (logo + الألوان) |
-| PUT / PATCH | `/api/tenant/settings` | تعديل `logo` / `background_color[]` / `color[]` |
-| POST | `/api/tenant/settings/logo` | رفع اللوجو (`multipart/form-data` - field: `image`) |
+| POST | `/api/tenant/settings` | تعديل `logo` / `background_color[]` / `color[]` (JSON أو `multipart/form-data` مع `image`) |
+| PUT / PATCH | `/api/tenant/settings` | نفس الـ handler (بدون ملف اللوجو) |
 | GET/POST/PUT/PATCH/DELETE | `/api/tenant/teams` (+`/select`, `/:id`, `/bulk-delete`, `/bulk`) | الفرق — فلتر `?game_id=` |
 | GET/POST/PUT/PATCH/DELETE | `/api/tenant/players` (+`/:id`, `/bulk-delete`, `/bulk`) | اللاعبين — فلتر `?team_id=` / `?game_id=` |
 | GET/POST/PUT/PATCH/DELETE | `/api/tenant/matches` (+`/:id`, `/bulk-delete`, `/bulk`) | الماتشات — فلتر `?team_id=`, `?team1_id=`, `?team2_id=`, `?from=`, `?to=` |
 | GET/POST/PUT/PATCH/DELETE | `/api/tenant/player-progress` (+`/:id`, `/bulk-delete`, `/bulk`) | فلتر `?match_id=`, `?player_id=`, `?action_id=` |
-| GET/POST/PUT/PATCH/DELETE | `/api/tenant/cart` (+`/:id`, `/bulk-delete`, `/bulk`) | سلة الاشتراك |
-| POST | `/api/tenant/cart/:id/checkout` | تحويل السلة لأوردر مركزي `pending` |
-| POST | `/api/tenant/cart/:id/payment-proof` | رفع إثبات الدفع للسلة (`multipart/form-data`) |
+| GET | `/api/tenant/cart` | السلة الحالية (document واحد) + الباكدج |
+| POST | `/api/tenant/cart` | إضافة باكدج للسلة (أو تحديث السلة الموجودة) |
+| PUT / PATCH | `/api/tenant/cart` | تعديل باكدج/مدة/ملاحظات السلة |
+| DELETE | `/api/tenant/cart` | تفريغ السلة |
+| POST | `/api/tenant/cart/checkout` | تحويل السلة لأوردر مركزي `pending` (`payment_method_id` + إثبات دفع) |
 | GET | `/api/tenant/packages` (+`/:id`) | تصفح الباكدجات المتاحة مع مددها وأسعارها والخصومات |
 | GET | `/api/tenant/payment-methods` | طرق الدفع المتاحة وتعليمات التحويل |
 | GET | `/api/tenant/orders` (+`/:id`) | قائمة أوردرات واشتراكات النادي وحالتها |
@@ -652,6 +660,12 @@ curl https://ahly.example.com/api/tenant/info -H "Authorization: Bearer $TOKEN"
 ```
 
 ```json
+// POST /api/tenant/cart/checkout  →  من غير cart id (السلة واحدة لكل نادي)
+// multipart/form-data: image + payment_method_id  |  أو JSON: payment_proof URL
+{ "payment_method_id": "<paymentMethodId>", "payment_proof": "https://cdn.example.com/proofs/receipt.jpg" }
+```
+
+```json
 // POST /api/tenant/matches  →  فريقين على المنصة
 { "name": "League Round 1", "date": "2026-10-01", "team1_id": "<teamA>", "team2_id": "<teamB>" }
 ```
@@ -700,7 +714,6 @@ npm run seed:tenant -- ahly zamalek
 - `settings` المركزي **global للسوبر أدمن**. إعدادات كل نادي (لوجو + ألوان) في collection
   `settings` جوه database النادي نفسه.
 - **مش مسموح تحذف Team** عنده players/matches، ولا Player/Match عنده `player-progress` → `409`.
-- **مش مسموح تعدّل/تحذف cart** اتعملّه checkout → `409`.
 - `player-progress` بيرفض لو الـ action من لعبة تانية أو فريق اللاعب ملعبش الماتش → `400`.
 - **الـ Tenant API بيسمح بـ `active` + `grace` بس**؛ الباقي `403` مع قائمة الباكدجات.
 

@@ -104,7 +104,7 @@ export async function purchasePackageDirectly(req: Request, res: Response) {
   const { club } = tenantContext(req);
   const models = tenantModels(req);
 
-  const { package_id, cycle_id, payment_method_id, payment_reference, notes, payment_proof: proofUrl } = req.body;
+  const { package_id, cycle_id, payment_method_id, notes, payment_proof: proofUrl } = req.body;
 
   const [pricing, paymentMethod, settings] = await Promise.all([
     resolveCartPricing(package_id, cycle_id),
@@ -141,7 +141,6 @@ export async function purchasePackageDirectly(req: Request, res: Response) {
       fine,
       status: "pending",
       payment_proof: finalProof,
-      payment_reference: payment_reference ?? null,
       notes: notes ?? null,
     });
   } catch (error) {

@@ -599,26 +599,15 @@ function addMissingPaths(paths: Record<string, any>) {
   // ---------------------------------------------------------------
   // Tenant - Cart
   // ---------------------------------------------------------------
-  addBulkDelete(paths, "/api/tenant/cart", "Tenant - Cart & Checkout", "Cart Item", TENANT_SECURITY, [
-    "6ae2e88d1540b80d32644b57",
-  ]);
-
-  addOperation(paths, "/api/tenant/cart/{id}", "get", {
+  // ---------------------------------------------------------------
+  // Tenant - Cart (one cart per club, no item ids)
+  // ---------------------------------------------------------------
+  addOperation(paths, "/api/tenant/cart", "put", {
     tags: ["Tenant - Cart & Checkout"],
-    summary: "Get Cart Item",
+    summary: "Update the Cart",
+    description:
+      "Updates the club's single cart. Sending `package_id` and/or `cycle_id` re-resolves the pricing from the central package.",
     security: TENANT_SECURITY,
-    parameters: idParam(),
-    responses: singleResponse("cart", {
-      _id: "6ae2e88d1540b80d32644b57",
-      status: "cart",
-      final_price: 4500,
-    }),
-  });
-  addOperation(paths, "/api/tenant/cart/{id}", "put", {
-    tags: ["Tenant - Cart & Checkout"],
-    summary: "Update Cart Item",
-    security: TENANT_SECURITY,
-    parameters: idParam(),
     requestBody: jsonBody({
       package_id: "6ae2e6e0a8448da0f3c60dd0",
       cycle_id: "6ae2e6e0a8448da0f3c60dd2",
@@ -626,33 +615,20 @@ function addMissingPaths(paths: Record<string, any>) {
     }),
     responses: singleResponse("cart", { _id: "6ae2e88d1540b80d32644b57", final_price: 14400 }),
   });
-  addOperation(paths, "/api/tenant/cart/{id}", "patch", {
+  addOperation(paths, "/api/tenant/cart", "patch", {
     tags: ["Tenant - Cart & Checkout"],
-    summary: "Update Cart Item (alias)",
-    description: "Same handler as `PUT /api/tenant/cart/{id}`.",
+    summary: "Update the Cart (alias)",
+    description: "Same handler as `PUT /api/tenant/cart`.",
     security: TENANT_SECURITY,
-    parameters: idParam(),
     requestBody: jsonBody({ notes: "Please call before 5pm" }),
     responses: singleResponse("cart", { _id: "6ae2e88d1540b80d32644b57" }),
   });
-  addOperation(paths, "/api/tenant/cart/{id}", "delete", {
+  addOperation(paths, "/api/tenant/cart", "delete", {
     tags: ["Tenant - Cart & Checkout"],
-    summary: "Remove Cart Item",
+    summary: "Clear the Cart",
+    description: "Deletes the club's single cart item. 404 when the cart is already empty.",
     security: TENANT_SECURITY,
-    parameters: idParam(),
-    responses: singleResponse("id", "6ae2e88d1540b80d32644b57", 200, "Cart item deleted successfully"),
-  });
-
-  addOperation(paths, "/api/tenant/cart/{id}/payment-proof", "post", {
-    tags: ["Tenant - Cart & Checkout"],
-    summary: "Upload Payment Proof for a Cart Item",
-    security: TENANT_SECURITY,
-    parameters: idParam(),
-    requestBody: multipartBody("payment_proof"),
-    responses: singleResponse("cart", {
-      _id: "6ae2e88d1540b80d32644b57",
-      payment_proof: "/uploads/proof-club-123.png",
-    }),
+    responses: singleResponse("cleared", true, 200, "Cart cleared successfully"),
   });
 
   // ---------------------------------------------------------------
@@ -2080,23 +2056,40 @@ export function buildOpenApiSpec() {
   paths["/api/tenant/cart"] = {
     get: {
       tags: ["Tenant - Cart & Checkout"],
-      summary: "List Cart Items",
+      summary: "Get the Cart",
+      description:
+        "Returns the club's single cart (or `cart: null` when it is empty) together with the central package/cycles.",
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
-      parameters: standardListParams(),
-      responses: paginatedResponse("Cart", {
-        _id: "6ae2e88d1540b80d32644b57",
-        package_id: "6ae2e6e0a8448da0f3c60dd0",
-        cycle_name: "Quarterly",
-        months: 3,
-        price: 5000,
-        discount: 500,
-        final_price: 4500,
-        status: "cart",
-      }),
+      responses: {
+        200: {
+          content: {
+            "application/json": {
+              example: {
+                success: true,
+                data: {
+                  cart: {
+                    _id: "6ae2e88d1540b80d32644b57",
+                    package_id: "6ae2e6e0a8448da0f3c60dd0",
+                    cycle_name: "Quarterly",
+                    months: 3,
+                    price: 5000,
+                    discount: 500,
+                    final_price: 4500,
+                    status: "cart",
+                  },
+                  package: { _id: "6ae2e6e0a8448da0f3c60dd0", name: "Football Pro" },
+                },
+              },
+            },
+          },
+        },
+      },
     },
     post: {
       tags: ["Tenant - Cart & Checkout"],
-      summary: "Add Package to Cart",
+      summary: "Add Package to the Cart",
+      description:
+        "A club has a single cart: when it already exists the same endpoint updates it and returns 200 instead of creating another row.",
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
       requestBody: jsonBody({
         package_id: "6ae2e6e0a8448da0f3c60dd0",
@@ -2110,16 +2103,16 @@ export function buildOpenApiSpec() {
     },
   };
 
-  paths["/api/tenant/cart/{id}/checkout"] = {
+  paths["/api/tenant/cart/checkout"] = {
     post: {
       tags: ["Tenant - Cart & Checkout"],
-      summary: "Checkout Cart Item -> Pending Order",
+      summary: "Checkout the Cart -> Pending Order",
+      description:
+        "Creates a central `pending` order for the club's cart (no cart id needed) and clears the cart. The late-renewal fine (if any) is charged once. The subscription is extended only after the super admin approves the order. `payment_method_id` and a payment proof (file or URL) are required.",
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
-      parameters: idParam(),
       requestBody: jsonBody({
         payment_method_id: "6ae2e6e0a8448da0f3c60df0",
         payment_proof: "https://example.com/proofs/receipt.jpg",
-        payment_reference: "REF-12345",
       }),
       responses: {
         201: {
@@ -2129,8 +2122,16 @@ export function buildOpenApiSpec() {
                 success: true,
                 message: "Order created and sent to the super admin for review",
                 data: {
-                  cart: { _id: "6ae2e88d1540b80d32644b57", status: "checked_out" },
-                  order: { _id: "6ae2e88d1540b80d32644b80", order_number: "ORD-2026-000001", status: "pending" },
+                  orders: [
+                    {
+                      _id: "6ae2e88d1540b80d32644b80",
+                      order_number: "ORD-2026-000001",
+                      status: "pending",
+                    },
+                  ],
+                  count: 1,
+                  total: 4500,
+                  payment_proof: "https://example.com/proofs/receipt.jpg",
                 },
               },
             },
@@ -2154,9 +2155,11 @@ export function buildOpenApiSpec() {
         color: ["#ffffff"],
       }),
     },
-    put: {
+    post: {
       tags: ["Tenant - Settings & Branding"],
-      summary: "Update Club Branding (Colors/Logo URL)",
+      summary: "Update Club Branding (Colors/Logo URL or file)",
+      description:
+        "Accepts JSON (`logo` URL + colors) or multipart/form-data (logo file in `image`/`file` + colors) in the same request.",
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
       requestBody: optionalMultipartBody(
         {
@@ -2171,15 +2174,23 @@ export function buildOpenApiSpec() {
         background_color: ["#e11d48", "#9f1239"],
       }),
     },
-  };
-
-  paths["/api/tenant/settings/logo"] = {
-    post: {
+    put: {
       tags: ["Tenant - Settings & Branding"],
-      summary: "Upload Club Logo",
+      summary: "Update Club Branding (alias)",
+      description: "Same handler as `POST /api/tenant/settings`.",
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
-      requestBody: multipartBody("image"),
-      responses: singleResponse("settings", { logo: "/uploads/club-logo.png" }),
+      requestBody: optionalMultipartBody(
+        {
+          logo: { type: "string", description: "Logo URL. Alternatively upload a file in the `image`/`file` field.", example: "/uploads/club-logo.png" },
+          background_color: { type: "array", items: { type: "string" }, example: ["#e11d48", "#9f1239"] },
+          color: { type: "array", items: { type: "string" }, example: ["#ffffff"] },
+          image: { type: "string", format: "binary", description: "Logo image file (multipart/form-data)" },
+        },
+        "Send as JSON (URL) or multipart/form-data (file upload)."
+      ),
+      responses: singleResponse("settings", {
+        background_color: ["#e11d48", "#9f1239"],
+      }),
     },
   };
 
@@ -2393,6 +2404,71 @@ export function buildOpenApiSpec() {
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
       parameters: idParam(),
       responses: singleResponse("id", "6ae2e88d1540b80d32644b00", 200, "Match deleted successfully"),
+    },
+  };
+
+  paths["/api/tenant/matches/players-actions"] = {
+    get: {
+      tags: ["Tenant - Matches"],
+      summary: "All Matches: Players & Action Counts",
+      description:
+        "Groups every `player-progress` row by match, then by player, returning each player's actions with their counts.",
+      security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
+      responses: {
+        200: {
+          content: {
+            "application/json": {
+              example: {
+                success: true,
+                data: {
+                  items: [
+                    {
+                      match: { id: "6ae2e88d1540b80d32644b00", name: "League Final Round" },
+                      players_actions: [
+                        {
+                          player: { id: "6ae2e88d1540b80d32644ae7", name: "Mohamed Salah" },
+                          actions: [{ id: "6ae2e6e0a8448da0f3c60d00", name: "Goal", count: 2 }],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+
+  paths["/api/tenant/matches/{id}/players-actions"] = {
+    get: {
+      tags: ["Tenant - Matches"],
+      summary: "One Match: Players & Action Counts",
+      description:
+        "Same grouping as `/matches/players-actions` but for a single match. 404 when the match does not exist.",
+      security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
+      parameters: idParam(),
+      responses: {
+        200: {
+          content: {
+            "application/json": {
+              example: {
+                success: true,
+                data: {
+                  match: { id: "6ae2e88d1540b80d32644b00", name: "League Final Round" },
+                  players_actions: [
+                    {
+                      player: { id: "6ae2e88d1540b80d32644ae7", name: "Mohamed Salah" },
+                      actions: [{ id: "6ae2e6e0a8448da0f3c60d00", name: "Goal", count: 2 }],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
     },
   };
 

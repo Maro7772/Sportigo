@@ -17,6 +17,30 @@ async function assertGameExists(gameId: string): Promise<void> {
   if (!game) throw new NotFound("Game not found");
 }
 
+/**
+ * A package is bound to one game (`package.game_id`) and defines how many
+ * teams the club may own for that game (`package.teams`). The club subscription
+ * therefore only grants teams inside the package's own game.
+ */
+async function getPackageForGame(club: { package_id?: unknown }, gameId: string) {
+  if (!club.package_id) {
+    throw new BadRequest("You must be subscribed to a package to add teams");
+  }
+
+  const pkg = await Package.findById(club.package_id).select("teams game_id").lean();
+  if (!pkg) {
+    throw new BadRequest("Your package no longer exists. Please renew your subscription");
+  }
+
+  if (String(pkg.game_id) !== String(gameId)) {
+    throw new BadRequest(
+      "Your package covers a different game, so you cannot add teams for this game",
+    );
+  }
+
+  return pkg;
+}
+
 /** `GET /api/tenant/teams` */
 export async function listTeams(req: Request, res: Response) {
   const models = tenantModels(req);
@@ -89,20 +113,15 @@ export async function createTeam(req: Request, res: Response) {
   await assertGameExists(req.body.game_id);
 
   const { club } = tenantContext(req);
-  if (!club.package_id) {
-    throw new BadRequest("You must be subscribed to a package to add teams");
-  }
+  const pkg = await getPackageForGame(club, req.body.game_id);
 
-  const pkg = await Package.findById(club.package_id).select("teams").lean();
-  if (pkg) {
-    const currentCount = await models.Team.countDocuments({
-      game_id: req.body.game_id,
-    });
-    if (currentCount >= pkg.teams) {
-      throw new BadRequest(
-        `You have reached the maximum limit of ${pkg.teams} teams allowed by your package`,
-      );
-    }
+  // Count only the package's game: teams left over from another game (legacy
+  // data) must not eat into the quota of the game the club is subscribed to.
+  const currentCount = await models.Team.countDocuments({ game_id: pkg.game_id });
+  if (currentCount >= pkg.teams) {
+    throw new BadRequest(
+      `You have reached the maximum limit of ${pkg.teams} teams allowed by your package`,
+    );
   }
 
   const team = await models.Team.create({
@@ -127,6 +146,21 @@ export async function updateTeam(req: Request, res: Response) {
     await assertGameExists(req.body.game_id);
 
     if (String(team.game_id) !== String(req.body.game_id)) {
+      const { club } = tenantContext(req);
+      const pkg = await getPackageForGame(club, req.body.game_id);
+
+      // Moving a team into the package's game adds a team to that quota, so it
+      // is re-checked (the team itself is excluded from the count).
+      const currentCount = await models.Team.countDocuments({
+        game_id: pkg.game_id,
+        _id: { $ne: team._id },
+      });
+      if (currentCount >= pkg.teams) {
+        throw new BadRequest(
+          `You have reached the maximum limit of ${pkg.teams} teams allowed by your package`,
+        );
+      }
+
       // Keep the players in sync with the team's new game.
       await models.TeamPlayer.updateMany(
         { team_id: team._id },
