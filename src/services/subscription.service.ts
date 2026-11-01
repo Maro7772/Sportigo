@@ -3,7 +3,12 @@ import { Club, type IClub } from "../models/Club";
 import { Order } from "../models/Order";
 import { Package, type IPackageCycle } from "../models/Package";
 
-export type SubscriptionState = "active" | "inactive" | "pending" | "grace" | "expired";
+export type SubscriptionState =
+  | "active"
+  | "inactive"
+  | "pending"
+  | "grace"
+  | "expired";
 
 export interface SubscriptionInfo {
   status: SubscriptionState;
@@ -29,7 +34,11 @@ export function addMonths(date: Date, months: number): Date {
   result.setDate(1);
   result.setMonth(result.getMonth() + months);
 
-  const lastDayOfMonth = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+  const lastDayOfMonth = new Date(
+    result.getFullYear(),
+    result.getMonth() + 1,
+    0,
+  ).getDate();
   result.setDate(Math.min(day, lastDayOfMonth));
 
   return result;
@@ -47,7 +56,7 @@ export function addMonths(date: Date, months: number): Date {
 export function evaluateSubscription(
   club: Pick<IClub, "status" | "start_date" | "end_date">,
   allowedDays = 0,
-  now: Date = new Date()
+  now: Date = new Date(),
 ): SubscriptionInfo {
   const base = {
     days_left: null as number | null,
@@ -85,7 +94,9 @@ export function evaluateSubscription(
       ...base,
       status: "grace",
       days_left: 0,
-      grace_days_left: Math.ceil((graceEndsAt.getTime() - now.getTime()) / DAY_MS),
+      grace_days_left: Math.ceil(
+        (graceEndsAt.getTime() - now.getTime()) / DAY_MS,
+      ),
       is_late_renewal: true,
     };
   }
@@ -104,56 +115,106 @@ export interface ApplyOrderResult {
   reason?: string;
 }
 
-function findCycle(pkg: { cycles: IPackageCycle[] }, cycleId?: Types.ObjectId | null) {
+function findCycle(
+  pkg: { cycles: IPackageCycle[] },
+  cycleId?: Types.ObjectId | null,
+) {
   if (!cycleId) return undefined;
   return pkg.cycles.find((cycle) => String(cycle._id) === String(cycleId));
 }
 
+/** Rolls back the atomic "applied" lock so the order can be retried. */
+async function releaseLock(orderId: unknown) {
+  await Order.updateOne(
+    { _id: orderId },
+    { $set: { applied_to_subscription: false, applied_at: null } },
+  );
+}
+
 /**
  * Applies a paid order to its club subscription exactly once.
- * Extends `end_date` by the cycle length and assigns the package.
+ *
+ * - New orders: extends `end_date` by the sum of every item's `months`.
+ * - Legacy orders (no `items`): extends by the single package cycle's months.
+ *
+ * Everything is validated before the club is touched, so an order is applied
+ * completely or not at all.
  */
-export async function applyPaidOrder(orderId: string): Promise<ApplyOrderResult> {
+export async function applyPaidOrder(
+  orderId: string,
+): Promise<ApplyOrderResult> {
   // Atomic lock: only one call can flip the flag.
   const order = await Order.findOneAndUpdate(
     { _id: orderId, status: "paid", applied_to_subscription: false },
     { $set: { applied_to_subscription: true, applied_at: new Date() } },
-    { new: true }
+    { new: true },
   );
 
   if (!order) {
-    return { applied: false, reason: "Order is not paid or was already applied" };
+    return {
+      applied: false,
+      reason: "Order is not paid or was already applied",
+    };
   }
 
   try {
-    const [pkg, club] = await Promise.all([
-      Package.findById(order.package_id),
-      Club.findById(order.club_id),
-    ]);
-
-    const cycle = pkg ? findCycle(pkg, order.cycle_id) : undefined;
-
-    if (!pkg || !cycle) {
-      await Order.updateOne(
-        { _id: order._id },
-        { $set: { applied_to_subscription: false, applied_at: null } }
-      );
-      return { applied: false, reason: "Order has no valid package cycle" };
+    const club = await Club.findById(order.club_id);
+    if (!club) {
+      await releaseLock(order._id);
+      return { applied: false, reason: "Club not found" };
     }
 
-    if (!club) {
-      await Order.updateOne(
-        { _id: order._id },
-        { $set: { applied_to_subscription: false, applied_at: null } }
-      );
-      return { applied: false, reason: "Club not found" };
+    let totalMonths = 0;
+    let lastPackageId: Types.ObjectId | null = null;
+
+    if (order.items?.length) {
+      // New shape: validate every package, then use each item's months snapshot.
+      const packageIds = order.items.map((item) => item.package_id);
+      const existing = await Package.find({ _id: { $in: packageIds } })
+        .select("_id")
+        .lean();
+      const existingIds = new Set(existing.map((pkg) => String(pkg._id)));
+
+      for (const item of order.items) {
+        if (!existingIds.has(String(item.package_id))) {
+          await releaseLock(order._id);
+          return {
+            applied: false,
+            reason: "Order has an item with a missing package",
+          };
+        }
+        if (!item.months || item.months < 1) {
+          await releaseLock(order._id);
+          return {
+            applied: false,
+            reason: "Order has an item with invalid months",
+          };
+        }
+
+        totalMonths += item.months;
+        lastPackageId = item.package_id;
+      }
+    } else {
+      // Legacy shape: single package + cycle on the order itself.
+      const pkg = order.package_id
+        ? await Package.findById(order.package_id)
+        : null;
+      const cycle = pkg ? findCycle(pkg, order.cycle_id) : undefined;
+
+      if (!pkg || !cycle) {
+        await releaseLock(order._id);
+        return { applied: false, reason: "Order has no valid package cycle" };
+      }
+
+      totalMonths = cycle.months;
+      lastPackageId = order.package_id ?? null;
     }
 
     const now = new Date();
     const base = club.end_date && club.end_date > now ? club.end_date : now;
-    const newEndDate = addMonths(base, cycle.months);
+    const newEndDate = addMonths(base, totalMonths);
 
-    club.package_id = order.package_id;
+    if (lastPackageId) club.package_id = lastPackageId;
     if (!club.start_date || club.start_date > now) club.start_date = now;
     club.end_date = newEndDate;
 
@@ -161,10 +222,7 @@ export async function applyPaidOrder(orderId: string): Promise<ApplyOrderResult>
 
     return { applied: true };
   } catch (error) {
-    await Order.updateOne(
-      { _id: order._id },
-      { $set: { applied_to_subscription: false, applied_at: null } }
-    );
+    await releaseLock(order._id);
     throw error;
   }
 }

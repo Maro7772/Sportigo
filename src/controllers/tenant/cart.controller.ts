@@ -36,6 +36,11 @@ interface CartLineInput {
   notes?: string | null;
 }
 
+const ORDER_POPULATE = [
+  { path: "items.package_id", select: "name game_id teams players status" },
+  { path: "payment_method_id", select: "name description status" },
+];
+
 function lineFromPricing(pricing: CartPricing, notes?: string | null) {
   return {
     package_id: pricing.package._id,
@@ -231,6 +236,13 @@ export async function clearCart(req: Request, res: Response) {
  * line for the super admin to review, then clears the cart.
  * The subscription is extended only after the super admin approves the orders.
  */
+/**
+ * `POST /api/tenant/cart/checkout`
+ * Checks out the whole cart: creates a single central `Order` (status `pending`)
+ * containing every cart line as an item, for the super admin to review, then
+ * clears the cart.
+ * The subscription is extended only after the super admin approves the order.
+ */
 export async function checkoutCart(req: Request, res: Response) {
   const models = tenantModels(req);
   const { club } = tenantContext(req);
@@ -261,69 +273,56 @@ export async function checkoutCart(req: Request, res: Response) {
 
   const settings = await getOrCreateSettings();
   const subscription = evaluateSubscription(club, settings.allowed_days);
-  // The late-renewal fine is charged once per checkout, not once per cart item.
+  // The late-renewal fine is charged once per order.
   const fine = subscription.is_late_renewal ? settings.fines : 0;
 
   const notes = req.body.notes ?? null;
 
-  const created: IOrder[] = [];
+  const orderItems = items.map((item) => ({
+    package_id: item.package_id,
+    cycle_id: item.cycle_id ?? null,
+    cycle_name: item.cycle_name,
+    months: item.months,
+    price: item.price,
+    discount: item.discount,
+    discount_type: item.discount_type,
+    notes: item.notes ?? null,
+  }));
+
+  // Order-level totals are recomputed from `items` in the model's pre-validate hook.
+  const totalPrice = roundMoney(
+    orderItems.reduce((sum, item) => sum + item.price, 0),
+  );
+
+  let order;
   try {
-    for (const [index, item] of items.entries()) {
-      const order = await Order.create({
-        club_id: club._id,
-        package_id: item.package_id,
-        cycle_id: item.cycle_id ?? null,
-        cycle_name: item.cycle_name,
-        payment_method_id: paymentMethod._id,
-        price: item.price,
-        discount: item.discount,
-        fine: index === 0 ? fine : 0,
-        status: "pending",
-        payment_proof: finalProof,
-        notes: notes ?? item.notes ?? null,
-      });
-      created.push(order);
-    }
+    order = await Order.create({
+      club_id: club._id,
+      items: orderItems,
+      payment_method_id: paymentMethod._id,
+      price: totalPrice,
+      fine,
+      status: "pending",
+      payment_proof: finalProof,
+      notes,
+    });
   } catch (error) {
-    // Roll back the orders created so far; the proof file is shared by all of them.
-    if (created.length) {
-      await Order.deleteMany({
-        _id: { $in: created.map((order) => order._id) },
-      });
-    }
     if (file) removeUploadedFile(file.path);
     throw error;
   }
 
   await models.Cart.deleteMany({ _id: { $in: items.map((item) => item._id) } });
 
-  // Return the created orders populated with their package (including all its
-  // cycles), payment method, and the exact cycle recorded on each order.
-  const orders = (
-    await Order.find({ _id: { $in: created.map((order) => order._id) } })
-      .populate([
-        {
-          path: "package_id",
-          select: "name game_id teams players status",
-        },
-        { path: "payment_method_id", select: "name description status" },
-      ])
-      .sort({ createdAt: 1 })
-      .lean()
-  ).map(attachCycle);
-
-  const total = orders.reduce(
-    (sum, order) =>
-      sum + (order.final_price ?? order.price - order.discount + order.fine),
-    0,
-  );
+  const populated = await Order.findById(order._id)
+    .populate(ORDER_POPULATE)
+    .lean();
 
   return SuccessResponse(
     res,
     {
-      orders,
-      count: orders.length,
-      total,
+      order: populated ? attachCycle(populated) : null,
+      count: orderItems.length,
+      total: populated?.final_price ?? order.final_price,
       payment_proof: finalProof,
     },
     201,

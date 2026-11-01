@@ -1,6 +1,7 @@
 import { Schema, model, type Model, type Types } from "mongoose";
 import { roundMoney } from "../utils/helpers";
 import { nextOrderNumber } from "../services/orderNumber.service";
+import type { DiscountType } from "../utils/pricing";
 
 export type OrderStatus =
   | "pending"
@@ -9,16 +10,43 @@ export type OrderStatus =
   | "cancelled"
   | "refunded";
 
+/** One purchased package line inside an order (snapshot at purchase time). */
+export interface IOrderItem {
+  _id?: any;
+  package_id: Types.ObjectId;
+  cycle_id?: Types.ObjectId | null;
+  /** Snapshot of the cycle name at purchase time. */
+  cycle_name?: string | null;
+  /** Duration in months. */
+  months: number;
+  /** Full price before discount. */
+  price: number;
+  /** Absolute discount amount (money). */
+  discount: number;
+  discount_type: DiscountType;
+  /** price - discount (never below 0). */
+  final_price: number;
+  notes?: string | null;
+}
+
 export interface IOrder {
   _id: any;
   order_number: string;
   club_id: Types.ObjectId;
-  package_id: Types.ObjectId;
+  /** All packages purchased in this order. */
+  items: IOrderItem[];
+  /**
+   * @deprecated Legacy single-package orders only. New orders use `items`.
+   */
+  package_id?: Types.ObjectId | null;
+  /** @deprecated Legacy single-package orders only. */
   cycle_id?: Types.ObjectId | null;
-  /** Snapshot of the cycle name at purchase time (so we can display it without joining). */
+  /** @deprecated Legacy single-package orders only. */
   cycle_name?: string | null;
   payment_method_id: Types.ObjectId;
+  /** Sum of all items' price. */
   price: number;
+  /** Sum of all items' discount. */
   discount: number;
   fine: number;
   final_price: number;
@@ -42,6 +70,29 @@ export interface IOrder {
 
 type OrderModel = Model<IOrder>;
 
+const orderItemSchema = new Schema<IOrderItem>(
+  {
+    package_id: {
+      type: Schema.Types.ObjectId,
+      ref: "Package",
+      required: true,
+    },
+    cycle_id: { type: Schema.Types.ObjectId, default: null },
+    cycle_name: { type: String, default: null, trim: true, maxlength: 100 },
+    months: { type: Number, required: true, min: 1, max: 120 },
+    price: { type: Number, required: true, min: 0 },
+    discount: { type: Number, default: 0, min: 0 },
+    discount_type: {
+      type: String,
+      enum: ["percentage", "amount"],
+      default: "percentage",
+    },
+    final_price: { type: Number, default: 0, min: 0 },
+    notes: { type: String, default: null, trim: true, maxlength: 1000 },
+  },
+  { _id: true },
+);
+
 const orderSchema = new Schema<IOrder, OrderModel>(
   {
     order_number: { type: String, required: true, unique: true, trim: true },
@@ -51,20 +102,22 @@ const orderSchema = new Schema<IOrder, OrderModel>(
       required: true,
       index: true,
     },
+    items: { type: [orderItemSchema], default: [] },
+    // Legacy fields: kept (optional) so old single-package orders still load.
     package_id: {
       type: Schema.Types.ObjectId,
       ref: "Package",
-      required: true,
+      default: null,
       index: true,
     },
     cycle_id: { type: Schema.Types.ObjectId, default: null },
+    cycle_name: { type: String, default: null, trim: true, maxlength: 100 },
     payment_method_id: {
       type: Schema.Types.ObjectId,
       ref: "PaymentMethod",
       required: true,
       index: true,
     },
-    cycle_name: { type: String, default: null, trim: true, maxlength: 100 },
     approved_by_name: {
       type: String,
       default: null,
@@ -118,6 +171,21 @@ orderSchema.pre("validate", async function assignOrderNumber() {
 });
 
 orderSchema.pre("validate", function calculateFinalPrice(next) {
+  // Per-item final price.
+  for (const item of this.items ?? []) {
+    item.final_price = roundMoney(Math.max(0, item.price - item.discount));
+  }
+
+  // When the order has items, its totals are derived from them.
+  if (this.items?.length) {
+    this.price = roundMoney(
+      this.items.reduce((sum, item) => sum + item.price, 0),
+    );
+    this.discount = roundMoney(
+      this.items.reduce((sum, item) => sum + item.discount, 0),
+    );
+  }
+
   this.final_price = roundMoney(
     Math.max(0, this.price - this.discount + this.fine),
   );
@@ -132,5 +200,6 @@ orderSchema.pre("validate", function calculateFinalPrice(next) {
 orderSchema.index({ createdAt: -1 });
 orderSchema.index({ club_id: 1, status: 1 });
 orderSchema.index({ status: 1, paid_at: -1 });
+orderSchema.index({ "items.package_id": 1 });
 
 export const Order = model<IOrder, OrderModel>("Order", orderSchema);

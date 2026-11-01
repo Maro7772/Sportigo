@@ -5,6 +5,7 @@ import { Club } from "../models/Club";
 import { PaymentMethod } from "../models/PaymentMethod";
 import { getOrCreateSettings } from "../models/Settings";
 import { ForbiddenError, NotFound } from "../errors";
+import { roundMoney } from "../utils/helpers";
 
 export interface InvoiceItem {
   package_id: string;
@@ -16,7 +17,7 @@ export interface InvoiceItem {
   players_limit: number;
   unit_price: number;
   discount: number;
-  fine: number;
+  /** unit_price - discount (the late-renewal fine is order-level, see `pricing.fine`). */
   final_price: number;
 }
 
@@ -37,7 +38,8 @@ export interface InvoiceData {
     name: string;
     service: string;
   };
-  item: InvoiceItem;
+  /** One entry per purchased package. */
+  items: InvoiceItem[];
   pricing: {
     subtotal: number;
     discount: number;
@@ -54,9 +56,20 @@ export interface InvoiceData {
   notes: string | null;
 }
 
+/** Normalized purchase line (new `items` entry or the legacy single package). */
+interface OrderLine {
+  package_id: Types.ObjectId | string | null;
+  cycle_id?: Types.ObjectId | string | null;
+  cycle_name?: string | null;
+  months?: number | null;
+  price: number;
+  discount: number;
+  final_price?: number | null;
+}
+
 function findCycle(
   cycles: IPackageCycle[],
-  cycleId?: Types.ObjectId | string | null
+  cycleId?: Types.ObjectId | string | null,
 ): IPackageCycle | undefined {
   if (!cycleId) return cycles[0];
   return cycles.find((c) => String(c._id) === String(cycleId));
@@ -68,7 +81,7 @@ function findCycle(
  */
 export async function buildInvoiceData(
   orderId: string,
-  allowedClubId?: string
+  allowedClubId?: string,
 ): Promise<InvoiceData> {
   const order = await Order.findById(orderId).lean();
   if (!order) {
@@ -79,9 +92,29 @@ export async function buildInvoiceData(
     throw new ForbiddenError("You are not authorized to view this invoice");
   }
 
-  const [club, pkg, paymentMethod, settings] = await Promise.all([
+  // New orders keep their lines in `items`; legacy orders are one implicit line.
+  const lines: OrderLine[] = order.items?.length
+    ? order.items
+    : [
+        {
+          package_id: order.package_id ?? null,
+          cycle_id: order.cycle_id ?? null,
+          cycle_name: order.cycle_name ?? null,
+          months: null,
+          price: order.price,
+          discount: order.discount,
+        },
+      ];
+
+  const packageIds = lines
+    .map((line) => line.package_id)
+    .filter((id): id is Types.ObjectId | string => Boolean(id));
+
+  const [club, packages, paymentMethod] = await Promise.all([
     Club.findById(order.club_id).lean(),
-    Package.findById(order.package_id).populate("game_id", "name").lean(),
+    Package.find({ _id: { $in: packageIds } })
+      .populate("game_id", "name")
+      .lean(),
     PaymentMethod.findById(order.payment_method_id).lean(),
     getOrCreateSettings(),
   ]);
@@ -90,13 +123,40 @@ export async function buildInvoiceData(
     throw new NotFound("Club associated with this order was not found");
   }
 
-  const cycle = pkg ? findCycle(pkg.cycles, order.cycle_id) : undefined;
-  const gameName = pkg?.game_id && typeof pkg.game_id === "object" && "name" in pkg.game_id
-    ? (pkg.game_id as { name: string }).name
-    : null;
+  const packageById = new Map(packages.map((pkg) => [String(pkg._id), pkg]));
 
-  const cycleName = cycle?.name ?? (order.cycle_id ? "Custom Cycle" : "Standard Cycle");
-  const months = cycle?.months ?? 1;
+  const items: InvoiceItem[] = lines.map((line) => {
+    const pkg = line.package_id
+      ? packageById.get(String(line.package_id))
+      : undefined;
+    const cycle = pkg ? findCycle(pkg.cycles, line.cycle_id) : undefined;
+
+    const gameName =
+      pkg?.game_id && typeof pkg.game_id === "object" && "name" in pkg.game_id
+        ? (pkg.game_id as { name: string }).name
+        : null;
+
+    // Prefer the snapshot stored on the order over the live package cycle.
+    const cycleName =
+      line.cycle_name ??
+      cycle?.name ??
+      (line.cycle_id ? "Custom Cycle" : "Standard Cycle");
+    const months = line.months ?? cycle?.months ?? 1;
+
+    return {
+      package_id: pkg ? String(pkg._id) : String(line.package_id ?? ""),
+      package_name: pkg?.name ?? "Subscription Package",
+      game_name: gameName,
+      cycle_name: cycleName,
+      months,
+      teams_limit: pkg?.teams ?? 0,
+      players_limit: pkg?.players ?? 0,
+      unit_price: line.price,
+      discount: line.discount,
+      final_price:
+        line.final_price ?? roundMoney(Math.max(0, line.price - line.discount)),
+    };
+  });
 
   const invoiceNumber = `INV-${order.order_number}`;
 
@@ -117,19 +177,7 @@ export async function buildInvoiceData(
       name: "Scouting Platform",
       service: "Club Scouting & Analytics Management System",
     },
-    item: {
-      package_id: pkg ? String(pkg._id) : String(order.package_id),
-      package_name: pkg?.name ?? "Subscription Package",
-      game_name: gameName,
-      cycle_name: cycleName,
-      months,
-      teams_limit: pkg?.teams ?? 0,
-      players_limit: pkg?.players ?? 0,
-      unit_price: order.price,
-      discount: order.discount,
-      fine: order.fine,
-      final_price: order.final_price,
-    },
+    items,
     pricing: {
       subtotal: order.price,
       discount: order.discount,
@@ -151,7 +199,10 @@ export async function buildInvoiceData(
  * Generates a responsive, printable HTML invoice representation.
  */
 export function renderInvoiceHtml(invoice: InvoiceData): string {
-  const statusColors: Record<OrderStatus, { bg: string; text: string; label: string }> = {
+  const statusColors: Record<
+    OrderStatus,
+    { bg: string; text: string; label: string }
+  > = {
     paid: { bg: "#e6f4ea", text: "#137333", label: "PAID" },
     pending: { bg: "#fef7e0", text: "#b06000", label: "PENDING APPROVAL" },
     rejected: { bg: "#fce8e6", text: "#c5221f", label: "REJECTED" },
@@ -160,11 +211,14 @@ export function renderInvoiceHtml(invoice: InvoiceData): string {
   };
 
   const currentStatus = statusColors[invoice.status] ?? statusColors.pending;
-  const issueDateFormatted = new Date(invoice.issued_at).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  const issueDateFormatted = new Date(invoice.issued_at).toLocaleDateString(
+    "en-US",
+    {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    },
+  );
   const paidDateFormatted = invoice.paid_at
     ? new Date(invoice.paid_at).toLocaleDateString("en-US", {
         year: "numeric",
@@ -172,6 +226,26 @@ export function renderInvoiceHtml(invoice: InvoiceData): string {
         day: "numeric",
       })
     : "—";
+
+  const itemRows = invoice.items
+    .map(
+      (item) => `
+        <tr>
+          <td>
+            <div class="item-title">${item.package_name}</div>
+            <div class="item-desc">
+              ${item.game_name ? `Game: ${item.game_name} | ` : ""}
+              Teams: ${item.teams_limit > 0 ? item.teams_limit : "Unlimited"} |
+              Players: ${item.players_limit > 0 ? item.players_limit : "Unlimited"}
+            </div>
+          </td>
+          <td>${item.cycle_name} (${item.months} mo)</td>
+          <td class="text-right">${item.unit_price.toFixed(2)}</td>
+          <td class="text-right">${item.discount > 0 ? `-${item.discount.toFixed(2)}` : "0.00"}</td>
+          <td class="text-right"><strong>${item.final_price.toFixed(2)}</strong></td>
+        </tr>`,
+    )
+    .join("");
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -406,26 +480,10 @@ export function renderInvoiceHtml(invoice: InvoiceData): string {
           <th>Duration</th>
           <th class="text-right">Price</th>
           <th class="text-right">Discount</th>
-          <th class="text-right">Fine</th>
           <th class="text-right">Total</th>
         </tr>
       </thead>
-      <tbody>
-        <tr>
-          <td>
-            <div class="item-title">${invoice.item.package_name}</div>
-            <div class="item-desc">
-              ${invoice.item.game_name ? `Game: ${invoice.item.game_name} | ` : ""}
-              Teams: ${invoice.item.teams_limit > 0 ? invoice.item.teams_limit : "Unlimited"} | 
-              Players: ${invoice.item.players_limit > 0 ? invoice.item.players_limit : "Unlimited"}
-            </div>
-          </td>
-          <td>${invoice.item.cycle_name} (${invoice.item.months} mo)</td>
-          <td class="text-right">${invoice.item.unit_price.toFixed(2)}</td>
-          <td class="text-right">${invoice.item.discount > 0 ? `-${invoice.item.discount.toFixed(2)}` : "0.00"}</td>
-          <td class="text-right">${invoice.item.fine > 0 ? `+${invoice.item.fine.toFixed(2)}` : "0.00"}</td>
-          <td class="text-right"><strong>${invoice.item.final_price.toFixed(2)}</strong></td>
-        </tr>
+      <tbody>${itemRows}
       </tbody>
     </table>
 

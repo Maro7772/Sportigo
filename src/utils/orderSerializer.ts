@@ -3,8 +3,11 @@ import type { Request } from "express";
 
 /**
  * Lean shape returned to the client:
- * - club / package / payment_method => `{ name }` only
- * - cycle => `cycle_name` (string), not `cycle_id`
+ * - club / payment_method => `{ name }` only
+ * - items => one entry per purchased package (`package`, `cycle`, months, prices)
+ * - package / cycle (top level) => kept for backward compatibility:
+ *     legacy orders use their own fields; new orders use the items
+ *     (package = names joined, cycle = the cycle only when there's one item)
  * - payment_proof => absolute URL
  * - approved_by => `approved_by_name` (string), not the ObjectId
  * - applied_to_subscription => hidden
@@ -20,13 +23,46 @@ export function serializeOrder(req: Request, order: any) {
     return url;
   };
 
+  const rawItems: any[] = Array.isArray(order.items) ? order.items : [];
+
+  const items = rawItems.map((item) => ({
+    _id: item._id,
+    package: item.package_id?.name ? { name: item.package_id.name } : null,
+    cycle: item.cycle_name ? { name: item.cycle_name } : null,
+    months: item.months ?? null,
+    price: item.price,
+    discount: item.discount,
+    discount_type: item.discount_type ?? null,
+    final_price: item.final_price,
+    notes: item.notes ?? null,
+  }));
+
+  let packageField: { name: string } | null;
+  let cycleField: { name: string } | null;
+
+  if (rawItems.length) {
+    const names = items
+      .map((item) => item.package?.name)
+      .filter((name): name is string => Boolean(name));
+
+    packageField = names.length ? { name: names.join(", ") } : null;
+    cycleField = items.length === 1 ? items[0].cycle : null;
+  } else {
+    // Legacy single-package order.
+    packageField = order.package_id?.name
+      ? { name: order.package_id.name }
+      : null;
+    cycleField = order.cycle_name ? { name: order.cycle_name } : null;
+  }
+
   return {
     _id: order._id,
     order_number: order.order_number,
 
     club: order.club_id?.name ? { name: order.club_id.name } : null,
-    package: order.package_id?.name ? { name: order.package_id.name } : null,
-    cycle: order.cycle_name ? { name: order.cycle_name } : null,
+    package: packageField,
+    cycle: cycleField,
+    items,
     payment_method: order.payment_method_id?.name
       ? { name: order.payment_method_id.name }
       : null,

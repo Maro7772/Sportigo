@@ -32,7 +32,10 @@ const SORT_FIELDS = [
 ];
 
 const ORDER_POPULATE = [
-  { path: "package_id", select: "name game_id teams players" },
+  // New orders: every purchased package lives in `items`.
+  { path: "items.package_id", select: "name game_id teams players status" },
+  // Legacy single-package orders (no `items`).
+  { path: "package_id", select: "name game_id teams players status" },
   { path: "payment_method_id", select: "name description status" },
 ];
 
@@ -102,7 +105,8 @@ export async function getTenantOrder(req: Request, res: Response) {
  * `POST /api/tenant/orders`
  * Direct package purchase endpoint.
  * Validates package, cycle and payment method, resolves verified pricing,
- * creates a pending central order, and mirrors it into the club's cart collection.
+ * creates a pending central order (with a single item), and mirrors it into
+ * the club's cart collection.
  */
 export async function purchasePackageDirectly(req: Request, res: Response) {
   const { club } = tenantContext(req);
@@ -143,14 +147,25 @@ export async function purchasePackageDirectly(req: Request, res: Response) {
 
   let order: any;
   try {
-    // 1. Create central order
+    // 1. Create central order (single item).
+    // Order-level price/discount/final_price are recomputed from `items`
+    // in the model's pre-validate hook.
     order = await Order.create({
       club_id: club._id,
-      package_id: pricing.package._id,
-      cycle_id: pricing.cycle._id ?? null,
+      items: [
+        {
+          package_id: pricing.package._id,
+          cycle_id: pricing.cycle._id ?? null,
+          cycle_name: pricing.cycle_name,
+          months: pricing.months,
+          price: pricing.price,
+          discount: pricing.discount,
+          discount_type: pricing.discount_type,
+          notes: notes ?? null,
+        },
+      ],
       payment_method_id: paymentMethod._id,
       price: pricing.price,
-      discount: pricing.discount,
       fine,
       status: "pending",
       payment_proof: finalProof,

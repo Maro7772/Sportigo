@@ -41,6 +41,9 @@ const SORT_FIELDS = [
 
 const ORDER_POPULATE = [
   { path: "club_id", select: "name" },
+  // New orders: every purchased package lives in `items`.
+  { path: "items.package_id", select: "name" },
+  // Legacy single-package orders (no `items`).
   { path: "package_id", select: "name" },
   { path: "payment_method_id", select: "name" },
   { path: "approved_by", select: "name" },
@@ -91,13 +94,24 @@ export async function listOrders(req: Request, res: Response) {
 
   for (const field of [
     "club_id",
-    "package_id",
     "payment_method_id",
     "status",
     "order_number",
   ] as const) {
     const value = req.query[field];
     if (typeof value === "string" && value) filter[field] = value;
+  }
+
+  // Package filter: match new orders (items.package_id) and legacy orders (package_id).
+  const packageId = req.query.package_id;
+  if (typeof packageId === "string" && packageId) {
+    const clause = {
+      $or: [{ package_id: packageId }, { "items.package_id": packageId }],
+    };
+    filter.$and = [
+      ...(Array.isArray(filter.$and) ? (filter.$and as unknown[]) : []),
+      clause,
+    ];
   }
 
   const [items, total] = await Promise.all([
@@ -188,14 +202,27 @@ export async function createOrder(req: Request, res: Response) {
 
   let order: any;
   try {
+    // Order-level price/discount/final_price are recomputed from `items`
+    // in the model's pre-validate hook.
     order = await Order.create({
       club_id,
-      package_id,
-      cycle_id: cycle_id ?? cycle?._id ?? null,
-      cycle_name: cycle?.name ?? null, // 👈 هنا هياخد اسم السايكل
+      items: [
+        {
+          package_id,
+          cycle_id: cycle_id ?? cycle?._id ?? null,
+          cycle_name: cycle?.name ?? null, // 👈 هنا هياخد اسم السايكل
+          months: cycle?.months ?? 1,
+          price,
+          discount,
+          discount_type:
+            req.body.discount !== undefined
+              ? "amount"
+              : (cycle?.discount_type ?? "amount"),
+          notes: null,
+        },
+      ],
       payment_method_id,
       price,
-      discount,
       fine,
       status: status,
       payment_proof: finalProof,
@@ -252,10 +279,26 @@ export async function updateOrder(req: Request, res: Response) {
     order.payment_method_id = req.body.payment_method_id;
   }
 
+  // Package / cycle / price / discount belong to a single line. Multi-item
+  // orders can't be edited this way (which line would it be?).
+  const touchesLine = ["package_id", "cycle_id", "price", "discount"].some(
+    (key) => req.body[key] !== undefined,
+  );
+  if (touchesLine && order.items.length > 1) {
+    throw new BadRequest(
+      "Package, cycle, price and discount cannot be edited on an order with multiple items",
+    );
+  }
+
+  // New orders: the single item. Legacy orders: the order itself.
+  const item = order.items.length ? order.items[0] : null;
+  const line = item ?? order;
+
+  const currentPackageId = line.package_id ? String(line.package_id) : null;
   const packageChanged =
     req.body.package_id !== undefined &&
-    String(req.body.package_id) !== String(order.package_id);
-  const packageId = req.body.package_id ?? String(order.package_id);
+    String(req.body.package_id) !== currentPackageId;
+  const packageId = req.body.package_id ?? currentPackageId;
 
   let pkg = null;
   if (packageChanged || req.body.cycle_id !== undefined) {
@@ -263,12 +306,10 @@ export async function updateOrder(req: Request, res: Response) {
     if (!pkg) throw new NotFound("Package not found");
   }
 
-  if (packageChanged) order.package_id = pkg!._id;
+  if (packageChanged) line.package_id = pkg!._id;
 
   const cycleProvided = req.body.cycle_id !== undefined;
-  let nextCycleId: string | null = order.cycle_id
-    ? String(order.cycle_id)
-    : null;
+  let nextCycleId: string | null = line.cycle_id ? String(line.cycle_id) : null;
 
   if (packageChanged) {
     nextCycleId = cycleProvided ? req.body.cycle_id : null;
@@ -284,16 +325,17 @@ export async function updateOrder(req: Request, res: Response) {
   }
 
   if (packageChanged || cycleProvided) {
-    order.cycle_id = nextCycleId ? new Types.ObjectId(nextCycleId) : null;
-    order.cycle_name = cycle?.name ?? null;
+    line.cycle_id = nextCycleId ? new Types.ObjectId(nextCycleId) : null;
+    line.cycle_name = cycle?.name ?? null;
+    if (item && cycle) item.months = cycle.months;
   }
 
-  if (req.body.price !== undefined) order.price = req.body.price;
+  if (req.body.price !== undefined) line.price = req.body.price;
 
   if (packageChanged || cycleProvided) {
     if (req.body.price === undefined) {
       if (cycle) {
-        order.price = cycle.price;
+        line.price = cycle.price;
       } else if (packageChanged) {
         throw new BadRequest(
           "price is required when changing to a package without a cycle",
@@ -303,15 +345,17 @@ export async function updateOrder(req: Request, res: Response) {
   }
 
   if (req.body.discount !== undefined) {
-    order.discount = req.body.discount;
+    line.discount = req.body.discount;
+    if (item) item.discount_type = "amount";
   } else if (cycle) {
-    order.discount = calculateDiscountAmount(
-      order.price,
+    line.discount = calculateDiscountAmount(
+      line.price,
       cycle.discount,
       cycle.discount_type,
     );
+    if (item) item.discount_type = cycle.discount_type;
   } else if (packageChanged) {
-    order.discount = 0;
+    line.discount = 0;
   }
 
   if (req.body.fine !== undefined) order.fine = req.body.fine;
@@ -327,7 +371,7 @@ export async function updateOrder(req: Request, res: Response) {
       if (req.body.paid_at !== undefined) order.paid_at = req.body.paid_at;
       if (req.body.notes !== undefined) order.notes = req.body.notes;
 
-      if (order.discount > order.price) {
+      if (line.discount > line.price) {
         throw new BadRequest("discount cannot be greater than price");
       }
 
@@ -345,7 +389,7 @@ export async function updateOrder(req: Request, res: Response) {
     if (req.body.paid_at !== undefined) order.paid_at = req.body.paid_at;
     if (req.body.notes !== undefined) order.notes = req.body.notes;
 
-    if (order.discount > order.price) {
+    if (line.discount > line.price) {
       throw new BadRequest("discount cannot be greater than price");
     }
 
