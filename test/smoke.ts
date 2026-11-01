@@ -1387,58 +1387,172 @@ async function main(): Promise<void> {
     });
     eq("team players counter is decremented", teamAfterDelete.body?.data?.team?.players, 0);
 
-    console.log("\n▶ Tenant cart & checkout (one cart per club, no ids)");
+    console.log("\n▶ Tenant cart (many lines, no ids)");
     const emptyCart = await api("GET", "/tenant/cart", { headers: tenantHeaders });
     eq("empty cart -> 200", emptyCart.status, 200);
-    eq("empty cart returns null", emptyCart.body?.data?.cart, null);
+    eq("empty cart has no lines", emptyCart.body?.data?.count, 0);
+    check("empty cart returns an items array", Array.isArray(emptyCart.body?.data?.items));
 
-    const cart = await api("POST", "/tenant/cart", {
+    // A second package so the cart can hold more than one package.
+    const secondPkg = await api("POST", "/packages", {
+      token,
+      body: {
+        name: "Basketball Basic",
+        game_id: basketballId,
+        teams: 3,
+        players: 10,
+        cycles: [
+          { name: "Monthly", discount_type: "percentage", price: 300, discount: 0, months: 1 },
+        ],
+      },
+    });
+    eq("create a second package for the cart -> 201", secondPkg.status, 201);
+    const secondPackageId: string = secondPkg.body?.data?.package?._id;
+    const secondCycleId: string = secondPkg.body?.data?.package?.cycles?.[0]?._id;
+
+    const cartLine1 = await api("POST", "/tenant/cart", {
       headers: tenantHeaders,
       body: { package_id: packageId, cycle_id: cycleId },
     });
-    eq("add package to cart -> 201", cart.status, 201);
-    const cartId: string = cart.body?.data?.cart?._id;
+    eq("add the first package to the cart -> 201", cartLine1.status, 201);
+    eq("the cart now holds one line", cartLine1.body?.data?.count, 1);
+    const firstLine: any = cartLine1.body?.data?.items?.[0];
     eq(
       "cart final price = price - discount",
-      cart.body?.data?.cart?.final_price,
-      cart.body?.data?.cart?.price - cart.body?.data?.cart?.discount
+      firstLine?.final_price,
+      firstLine?.price - firstLine?.discount
     );
-    check("cart stores the duration in months", cart.body?.data?.cart?.months >= 1);
+    check("cart stores the duration in months", firstLine?.months >= 1);
 
-    const cartAgain = await api("POST", "/tenant/cart", {
+    const cartSameLine = await api("POST", "/tenant/cart", {
       headers: tenantHeaders,
       body: { package_id: packageId, cycle_id: cycleId },
     });
-    eq("second add updates the single cart -> 200", cartAgain.status, 200);
-    eq("the club keeps one cart", cartAgain.body?.data?.cart?._id, cartId);
+    eq("adding the same package twice -> 409", cartSameLine.status, 409);
+
+    const cartLine2 = await api("POST", "/tenant/cart", {
+      headers: tenantHeaders,
+      body: { package_id: secondPackageId, cycle_id: secondCycleId },
+    });
+    eq("adding another package appends a line -> 201", cartLine2.status, 201);
+    eq("the cart now holds two lines", cartLine2.body?.data?.count, 2);
 
     const cartGet = await api("GET", "/tenant/cart", { headers: tenantHeaders });
     eq("get cart -> 200", cartGet.status, 200);
-    eq("get cart returns the same document", cartGet.body?.data?.cart?._id, cartId);
-    check("cart is enriched with the package", Boolean(cartGet.body?.data?.package?.name));
+    eq("get cart returns every line", cartGet.body?.data?.items?.length, 2);
+    check(
+      "every cart line is enriched with its package",
+      cartGet.body?.data?.items?.every((item: any) => Boolean(item.package?.name))
+    );
+    check(
+      "every cart line returns its own cycle",
+      cartGet.body?.data?.items?.every((item: any) => Boolean(item.cycle?.name))
+    );
+    check(
+      "cart total sums the lines",
+      cartGet.body?.data?.total ===
+        cartGet.body?.data?.items?.reduce((sum: number, item: any) => sum + item.final_price, 0)
+    );
 
     const cartUpdate = await api("PATCH", "/tenant/cart", {
       headers: tenantHeaders,
-      body: { notes: "Please call before 5pm" },
+      body: { package_id: packageId, notes: "Please call before 5pm" },
     });
-    eq("update cart without an id -> 200", cartUpdate.status, 200);
-    eq("cart notes are saved", cartUpdate.body?.data?.cart?.notes, "Please call before 5pm");
+    eq("update one cart line by package_id -> 200", cartUpdate.status, 200);
+    eq(
+      "the patched line saves its notes",
+      cartUpdate.body?.data?.items?.find(
+        (item: any) => String(item.package_id) === packageId
+      )?.notes,
+      "Please call before 5pm"
+    );
+    eq("patching one line keeps the other line", cartUpdate.body?.data?.count, 2);
+
+    const cartDeleteOne = await api("DELETE", `/tenant/cart?package_id=${secondPackageId}`, {
+      headers: tenantHeaders,
+    });
+    eq("delete one cart line by package_id -> 200", cartDeleteOne.status, 200);
+    eq("only the other line remains", cartDeleteOne.body?.data?.count, 1);
+
+    const cartReplace = await api("PUT", "/tenant/cart", {
+      headers: tenantHeaders,
+      body: {
+        items: [
+          { package_id: packageId, cycle_id: cycleId },
+          { package_id: secondPackageId, cycle_id: secondCycleId, notes: "back again" },
+        ],
+      },
+    });
+    eq("replace the whole cart -> 200", cartReplace.status, 200);
+    eq("replace sets the exact lines sent", cartReplace.body?.data?.count, 2);
+
+    const cartDuplicate = await api("PUT", "/tenant/cart", {
+      headers: tenantHeaders,
+      body: {
+        items: [
+          { package_id: packageId, cycle_id: cycleId },
+          { package_id: packageId, cycle_id: cycleId },
+        ],
+      },
+    });
+    eq("a replacement with the same package twice -> 400", cartDuplicate.status, 400);
+
+    const cartAfterDuplicate = await api("GET", "/tenant/cart", { headers: tenantHeaders });
+    eq("a rejected replacement keeps the cart", cartAfterDuplicate.body?.data?.count, 2);
+
+    const cartClear = await api("DELETE", "/tenant/cart", { headers: tenantHeaders });
+    eq("clear the cart -> 200", cartClear.status, 200);
+    eq("clearing empties the cart", cartClear.body?.data?.count, 0);
+
+    const cartRefill = await api("POST", "/tenant/cart", {
+      headers: tenantHeaders,
+      body: { package_id: packageId, cycle_id: cycleId },
+    });
+    eq("the cart can be refilled -> 201", cartRefill.body?.data?.count, 1);
 
     const checkout = await api("POST", "/tenant/cart/checkout", {
       headers: tenantHeaders,
       body: { payment_method_id: paymentMethodId, payment_proof: "https://example.com/proofs/cart.jpg" },
     });
     eq("checkout -> 201", checkout.status, 201);
-    eq("checkout creates one pending order", checkout.body?.data?.count, 1);
-    eq("checkout order is pending", checkout.body?.data?.orders?.[0]?.status, "pending");
+    eq("checkout creates one pending order per line", checkout.body?.data?.count, 1);
     check(
-      "checkout order has an order number",
-      String(checkout.body?.data?.orders?.[0]?.order_number).startsWith("ORD-")
+      "every checkout order is pending",
+      checkout.body?.data?.orders?.every((order: any) => order.status === "pending")
+    );
+    check(
+      "every checkout order has an order number",
+      checkout.body?.data?.orders?.every((order: any) =>
+        String(order.order_number).startsWith("ORD-")
+      )
+    );
+    check(
+      "the checkout order returns its package (with all cycles)",
+      Boolean(checkout.body?.data?.orders?.[0]?.package_id?.name) &&
+        Array.isArray(checkout.body?.data?.orders?.[0]?.package_id?.cycles) &&
+        checkout.body?.data?.orders?.[0]?.package_id?.cycles.length > 0
+    );
+    eq(
+      "the checkout order returns the exact cycle that was bought",
+      checkout.body?.data?.orders?.[0]?.cycle?._id,
+      cycleId
     );
     const checkoutOrderId: string = checkout.body?.data?.orders?.[0]?._id;
 
     const cartAfterCheckout = await api("GET", "/tenant/cart", { headers: tenantHeaders });
-    eq("checkout clears the cart", cartAfterCheckout.body?.data?.cart, null);
+    eq("checkout clears the cart", cartAfterCheckout.body?.data?.count, 0);
+
+    const ordersWithPackages = await api("GET", "/tenant/orders", { headers: tenantHeaders });
+    const newestOrder = ordersWithPackages.body?.data?.items?.find(
+      (order: any) => String(order._id) === String(checkoutOrderId)
+    );
+    check(
+      "the order list returns the package with all its cycles",
+      Boolean(newestOrder?.package_id?.name) &&
+        Array.isArray(newestOrder?.package_id?.cycles) &&
+        newestOrder.package_id.cycles.length > 0
+    );
+    eq("the order list returns the recorded cycle", newestOrder?.cycle?._id, cycleId);
 
     const checkoutAgain = await api("POST", "/tenant/cart/checkout", {
       headers: tenantHeaders,
@@ -1499,7 +1613,6 @@ async function main(): Promise<void> {
         cycle_id: cycleId,
         payment_method_id: paymentMethodId,
         payment_proof: "https://example.com/proofs/direct.jpg",
-        payment_reference: "INSTAPAY-TXN-9876",
         notes: "Direct checkout from tenant portal",
       },
     });
@@ -1509,6 +1622,16 @@ async function main(): Promise<void> {
     check(
       "direct order has valid order number",
       String(directPurchase.body?.data?.order?.order_number).startsWith("ORD-")
+    );
+    eq(
+      "direct order returns the package with its cycles",
+      directPurchase.body?.data?.order?.package_id?.cycles?.length > 0,
+      true
+    );
+    eq(
+      "direct order returns the recorded cycle",
+      directPurchase.body?.data?.order?.cycle?._id,
+      cycleId
     );
     eq(
       "direct order created matching cart record",

@@ -131,6 +131,40 @@
             }
           }
         }
+      },
+      "Forbidden": {
+        "description": "The token is valid but the account/role cannot perform this action, the club is disabled, or the subscription is expired (scouting workspace only).",
+        "content": {
+          "application/json": {
+            "example": {
+              "success": false,
+              "error": {
+                "code": 403,
+                "message": "Your subscription has expired. Please renew to continue.",
+                "details": {
+                  "subscription": {
+                    "status": "expired"
+                  },
+                  "packages": []
+                }
+              }
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "The request conflicts with the current state (duplicate, or a protected document).",
+        "content": {
+          "application/json": {
+            "example": {
+              "success": false,
+              "error": {
+                "code": 409,
+                "message": "This package is already in your cart."
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -757,14 +791,6 @@
             "name": "status",
             "in": "query",
             "schema": {
-              "type": "boolean"
-            },
-            "description": "Filter by active status (true/false)"
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "schema": {
               "type": "string",
               "enum": [
                 "pending",
@@ -773,7 +799,8 @@
                 "cancelled",
                 "refunded"
               ]
-            }
+            },
+            "description": "Filter by order status"
           }
         ],
         "responses": {
@@ -800,16 +827,48 @@
                             {
                               "_id": "6ae2e88d1540b80d32644b80",
                               "order_number": "ORD-2026-000001",
+                              "status": "pending",
+                              "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
+                              "cycle_name": "Annual (12 Months)",
                               "price": 18000,
                               "discount": 3600,
                               "fine": 0,
                               "final_price": 14400,
-                              "status": "pending",
                               "payment_method_id": {
+                                "_id": "6ae2e6e0a8448da0f3c60df0",
                                 "name": "InstaPay"
                               },
                               "package_id": {
-                                "name": "Pro Club Package"
+                                "_id": "6ae2e6e0a8448da0f3c60dd0",
+                                "name": "Pro Club Package",
+                                "teams": 5,
+                                "players": 30,
+                                "cycles": [
+                                  {
+                                    "_id": "6ae2e6e0a8448da0f3c60dd1",
+                                    "name": "Quarterly",
+                                    "months": 3,
+                                    "price": 5000,
+                                    "discount": 10,
+                                    "discount_type": "percentage"
+                                  },
+                                  {
+                                    "_id": "6ae2e6e0a8448da0f3c60dd2",
+                                    "name": "Annual (12 Months)",
+                                    "months": 12,
+                                    "price": 18000,
+                                    "discount": 20,
+                                    "discount_type": "percentage"
+                                  }
+                                ]
+                              },
+                              "cycle": {
+                                "_id": "6ae2e6e0a8448da0f3c60dd2",
+                                "name": "Annual (12 Months)",
+                                "months": 12,
+                                "price": 18000,
+                                "discount": 20,
+                                "discount_type": "percentage"
                               }
                             }
                           ]
@@ -834,7 +893,7 @@
           "Tenant - Orders & Invoices"
         ],
         "summary": "Direct Package Purchase (Buy Now)",
-        "description": "Instantly creates a pending order for this club (without needing separate cart steps). Also logs the purchase in the club's cart collection for synchronization.",
+        "description": "Creates a pending order for this club in one step (it does not touch the cart, and it does not clear existing cart lines). `payment_reference` is not accepted from the tenant: only `payment_method_id` + a payment proof (file or URL). The response returns the order populated with its `package` (including all `cycles`) and the exact `cycle` that was bought.",
         "security": [
           {
             "TenantAuth": []
@@ -855,7 +914,6 @@
                   "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
                   "payment_method_id": "6ae2e6e0a8448da0f3c60df0",
                   "payment_proof": "https://example.com/proofs/receipt.jpg",
-                  "payment_reference": "INSTAPAY-TXN-9876",
                   "notes": "Direct checkout from tenant portal"
                 }
               }
@@ -873,8 +931,42 @@
                     "order": {
                       "_id": "6ae2e88d1540b80d32644b80",
                       "order_number": "ORD-2026-000001",
+                      "status": "pending",
+                      "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
+                      "cycle_name": "Annual (12 Months)",
                       "final_price": 14400,
-                      "status": "pending"
+                      "package_id": {
+                        "_id": "6ae2e6e0a8448da0f3c60dd0",
+                        "name": "Pro Club Package",
+                        "teams": 5,
+                        "players": 30,
+                        "cycles": [
+                          {
+                            "_id": "6ae2e6e0a8448da0f3c60dd1",
+                            "name": "Quarterly",
+                            "months": 3,
+                            "price": 5000,
+                            "discount": 10,
+                            "discount_type": "percentage"
+                          },
+                          {
+                            "_id": "6ae2e6e0a8448da0f3c60dd2",
+                            "name": "Annual (12 Months)",
+                            "months": 12,
+                            "price": 18000,
+                            "discount": 20,
+                            "discount_type": "percentage"
+                          }
+                        ]
+                      },
+                      "cycle": {
+                        "_id": "6ae2e6e0a8448da0f3c60dd2",
+                        "name": "Annual (12 Months)",
+                        "months": 12,
+                        "price": 18000,
+                        "discount": 20,
+                        "discount_type": "percentage"
+                      }
                     },
                     "cart": {
                       "_id": "6ae2e88d1540b80d32644b81",
@@ -885,6 +977,18 @@
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }
@@ -895,6 +999,7 @@
           "Tenant - Orders & Invoices"
         ],
         "summary": "Get Order Details",
+        "description": "Returns one order of this club, populated with its `package` (including all `cycles`), the exact `cycle` that was bought, and the payment method. Another club's order -> 403.",
         "security": [
           {
             "TenantAuth": []
@@ -936,7 +1041,39 @@
                             "_id": "6ae2e88d1540b80d32644b80",
                             "order_number": "ORD-2026-000001",
                             "status": "pending",
-                            "final_price": 14400
+                            "final_price": 14400,
+                            "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
+                            "cycle_name": "Annual (12 Months)",
+                            "package_id": {
+                              "_id": "6ae2e6e0a8448da0f3c60dd0",
+                              "name": "Pro Club Package",
+                              "cycles": [
+                                {
+                                  "_id": "6ae2e6e0a8448da0f3c60dd1",
+                                  "name": "Quarterly",
+                                  "months": 3,
+                                  "price": 5000,
+                                  "discount": 10,
+                                  "discount_type": "percentage"
+                                },
+                                {
+                                  "_id": "6ae2e6e0a8448da0f3c60dd2",
+                                  "name": "Annual (12 Months)",
+                                  "months": 12,
+                                  "price": 18000,
+                                  "discount": 20,
+                                  "discount_type": "percentage"
+                                }
+                              ]
+                            },
+                            "cycle": {
+                              "_id": "6ae2e6e0a8448da0f3c60dd2",
+                              "name": "Annual (12 Months)",
+                              "months": 12,
+                              "price": 18000,
+                              "discount": 20,
+                              "discount_type": "percentage"
+                            }
                           }
                         }
                       }
@@ -964,6 +1101,7 @@
           "Tenant - Orders & Invoices"
         ],
         "summary": "Upload Order Payment Screenshot / Receipt",
+        "description": "Uploads (or replaces) the receipt on this club's order. Send `multipart/form-data` with an `image` (or `file`) field. Another club's order -> 403. Response includes the absolute `payment_proof_url`.",
         "security": [
           {
             "TenantAuth": []
@@ -1007,28 +1145,19 @@
         },
         "responses": {
           "200": {
-            "description": "Successful operation",
+            "description": "Payment proof uploaded successfully",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
+                "example": {
+                  "success": true,
+                  "message": "Payment proof uploaded successfully",
+                  "data": {
+                    "order": {
+                      "_id": "6ae2e88d1540b80d32644b80",
+                      "order_number": "ORD-2026-000001",
+                      "payment_proof": "/uploads/proof-club-123.png"
                     },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "order": {
-                          "type": "object",
-                          "example": {
-                            "_id": "6ae2e88d1540b80d32644b80",
-                            "payment_proof": "/uploads/proof-club-123.png"
-                          }
-                        }
-                      }
-                    }
+                    "payment_proof_url": "http://localhost:4000/uploads/proof-club-123.png"
                   }
                 }
               }
@@ -1039,6 +1168,9 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -1176,7 +1308,7 @@
           "Tenant - Cart & Checkout"
         ],
         "summary": "Get the Cart",
-        "description": "Returns the club's single cart (or `cart: null` when it is empty) together with the central package/cycles.",
+        "description": "Returns the club's single cart as an array (`items`). Each line is enriched with its central `package` (including all `cycles`) and the exact `cycle` recorded on that line. `count` and `total` are computed for the whole cart.",
         "security": [
           {
             "TenantAuth": []
@@ -1187,29 +1319,88 @@
         ],
         "responses": {
           "200": {
+            "description": "Cart retrieved successfully",
             "content": {
               "application/json": {
                 "example": {
                   "success": true,
+                  "message": "Cart retrieved successfully",
                   "data": {
-                    "cart": {
-                      "_id": "6ae2e88d1540b80d32644b57",
-                      "package_id": "6ae2e6e0a8448da0f3c60dd0",
-                      "cycle_name": "Quarterly",
-                      "months": 3,
-                      "price": 5000,
-                      "discount": 500,
-                      "final_price": 4500,
-                      "status": "cart"
-                    },
-                    "package": {
-                      "_id": "6ae2e6e0a8448da0f3c60dd0",
-                      "name": "Football Pro"
-                    }
+                    "items": [
+                      {
+                        "_id": "6ae2e88d1540b80d32644b57",
+                        "package_id": "6ae2e6e0a8448da0f3c60dd0",
+                        "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
+                        "cycle_name": "Annual (12 Months)",
+                        "months": 12,
+                        "price": 18000,
+                        "discount": 3600,
+                        "discount_type": "percentage",
+                        "final_price": 14400,
+                        "status": "cart",
+                        "notes": null,
+                        "createdAt": "2026-11-01T09:00:00.000Z",
+                        "updatedAt": "2026-11-01T09:00:00.000Z",
+                        "package": {
+                          "_id": "6ae2e6e0a8448da0f3c60dd0",
+                          "name": "Pro Club Package",
+                          "game_id": {
+                            "_id": "6ae2e6e0a8448da0f3c60dc0",
+                            "name": "Football"
+                          },
+                          "teams": 5,
+                          "players": 30,
+                          "status": true,
+                          "cycles": [
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dd1",
+                              "name": "Quarterly",
+                              "months": 3,
+                              "price": 5000,
+                              "discount": 10,
+                              "discount_type": "percentage"
+                            },
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dd2",
+                              "name": "Annual (12 Months)",
+                              "months": 12,
+                              "price": 18000,
+                              "discount": 20,
+                              "discount_type": "percentage"
+                            }
+                          ]
+                        },
+                        "cycle": {
+                          "_id": "6ae2e6e0a8448da0f3c60dd2",
+                          "name": "Annual (12 Months)",
+                          "months": 12,
+                          "price": 18000,
+                          "discount": 20,
+                          "discount_type": "percentage"
+                        }
+                      }
+                    ],
+                    "count": 1,
+                    "total": 14400
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       },
@@ -1217,8 +1408,8 @@
         "tags": [
           "Tenant - Cart & Checkout"
         ],
-        "summary": "Add Package to the Cart",
-        "description": "A club has a single cart: when it already exists the same endpoint updates it and returns 200 instead of creating another row.",
+        "summary": "Add a Package to the Cart",
+        "description": "Appends the selected package/cycle as a new cart line and returns the whole cart. Different packages are added as separate lines; adding a package that is already in the cart -> 409. Prices always come from the central package/cycle.",
         "security": [
           {
             "TenantAuth": []
@@ -1244,29 +1435,69 @@
         },
         "responses": {
           "201": {
-            "description": "Successful operation",
+            "description": "Cart item added successfully",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "cart": {
-                          "type": "object",
-                          "example": {
-                            "_id": "6ae2e88d1540b80d32644b57",
-                            "status": "cart",
-                            "final_price": 4500
-                          }
+                "example": {
+                  "success": true,
+                  "message": "Cart item added successfully",
+                  "data": {
+                    "items": [
+                      {
+                        "_id": "6ae2e88d1540b80d32644b57",
+                        "package_id": "6ae2e6e0a8448da0f3c60dd0",
+                        "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
+                        "cycle_name": "Annual (12 Months)",
+                        "months": 12,
+                        "price": 18000,
+                        "discount": 3600,
+                        "discount_type": "percentage",
+                        "final_price": 14400,
+                        "status": "cart",
+                        "notes": null,
+                        "createdAt": "2026-11-01T09:00:00.000Z",
+                        "updatedAt": "2026-11-01T09:00:00.000Z",
+                        "package": {
+                          "_id": "6ae2e6e0a8448da0f3c60dd0",
+                          "name": "Pro Club Package",
+                          "game_id": {
+                            "_id": "6ae2e6e0a8448da0f3c60dc0",
+                            "name": "Football"
+                          },
+                          "teams": 5,
+                          "players": 30,
+                          "status": true,
+                          "cycles": [
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dd1",
+                              "name": "Quarterly",
+                              "months": 3,
+                              "price": 5000,
+                              "discount": 10,
+                              "discount_type": "percentage"
+                            },
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dd2",
+                              "name": "Annual (12 Months)",
+                              "months": 12,
+                              "price": 18000,
+                              "discount": 20,
+                              "discount_type": "percentage"
+                            }
+                          ]
+                        },
+                        "cycle": {
+                          "_id": "6ae2e6e0a8448da0f3c60dd2",
+                          "name": "Annual (12 Months)",
+                          "months": 12,
+                          "price": 18000,
+                          "discount": 20,
+                          "discount_type": "percentage"
                         }
                       }
-                    }
+                    ],
+                    "count": 1,
+                    "total": 14400
                   }
                 }
               }
@@ -1278,8 +1509,14 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       },
@@ -1287,8 +1524,8 @@
         "tags": [
           "Tenant - Cart & Checkout"
         ],
-        "summary": "Update the Cart",
-        "description": "Updates the club's single cart. Sending `package_id` and/or `cycle_id` re-resolves the pricing from the central package.",
+        "summary": "Replace the Cart",
+        "description": "Replaces the whole cart with the sent array (useful to sync the client cart in one request). An empty array clears the cart. Sending the same package twice -> 400. Prices are always resolved from the central package/cycle, never from the client.",
         "security": [
           {
             "TenantAuth": []
@@ -1298,7 +1535,132 @@
           }
         ],
         "requestBody": {
-          "description": "Request Payload",
+          "description": "The full cart. Each item needs `package_id`; `cycle_id` is required when the package has more than one cycle.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {
+                  "items": [
+                    {
+                      "package_id": "6ae2e6e0a8448da0f3c60dd0",
+                      "cycle_id": "6ae2e6e0a8448da0f3c60dd2"
+                    },
+                    {
+                      "package_id": "6ae2e6e0a8448da0f3c60dd5",
+                      "cycle_id": "6ae2e6e0a8448da0f3c60dd6",
+                      "notes": "Second package"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cart updated successfully (2 item(s))",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Cart updated successfully (2 item(s))",
+                  "data": {
+                    "items": [
+                      {
+                        "_id": "6ae2e88d1540b80d32644b57",
+                        "package_id": "6ae2e6e0a8448da0f3c60dd0",
+                        "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
+                        "cycle_name": "Annual (12 Months)",
+                        "months": 12,
+                        "price": 18000,
+                        "discount": 3600,
+                        "discount_type": "percentage",
+                        "final_price": 14400,
+                        "status": "cart",
+                        "notes": null,
+                        "createdAt": "2026-11-01T09:00:00.000Z",
+                        "updatedAt": "2026-11-01T09:00:00.000Z",
+                        "package": {
+                          "_id": "6ae2e6e0a8448da0f3c60dd0",
+                          "name": "Pro Club Package",
+                          "game_id": {
+                            "_id": "6ae2e6e0a8448da0f3c60dc0",
+                            "name": "Football"
+                          },
+                          "teams": 5,
+                          "players": 30,
+                          "status": true,
+                          "cycles": [
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dd1",
+                              "name": "Quarterly",
+                              "months": 3,
+                              "price": 5000,
+                              "discount": 10,
+                              "discount_type": "percentage"
+                            },
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dd2",
+                              "name": "Annual (12 Months)",
+                              "months": 12,
+                              "price": 18000,
+                              "discount": 20,
+                              "discount_type": "percentage"
+                            }
+                          ]
+                        },
+                        "cycle": {
+                          "_id": "6ae2e6e0a8448da0f3c60dd2",
+                          "name": "Annual (12 Months)",
+                          "months": 12,
+                          "price": 18000,
+                          "discount": 20,
+                          "discount_type": "percentage"
+                        }
+                      }
+                    ],
+                    "count": 1,
+                    "total": 14400
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Tenant - Cart & Checkout"
+        ],
+        "summary": "Update One Cart Line",
+        "description": "Updates the line of the given `package_id` (no cart-line id needed): change its cycle and/or notes. 404 when the package is not in the cart.",
+        "security": [
+          {
+            "TenantAuth": []
+          },
+          {
+            "TenantSubdomain": []
+          }
+        ],
+        "requestBody": {
+          "description": "`package_id` identifies the line; send at least one of `cycle_id` / `notes`.",
           "required": true,
           "content": {
             "application/json": {
@@ -1315,95 +1677,69 @@
         },
         "responses": {
           "200": {
-            "description": "Successful operation",
+            "description": "Cart item updated successfully",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "cart": {
-                          "type": "object",
-                          "example": {
-                            "_id": "6ae2e88d1540b80d32644b57",
-                            "final_price": 14400
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/Unauthorized"
-          },
-          "404": {
-            "$ref": "#/components/responses/NotFound"
-          }
-        }
-      },
-      "patch": {
-        "tags": [
-          "Tenant - Cart & Checkout"
-        ],
-        "summary": "Update the Cart (alias)",
-        "description": "Same handler as `PUT /api/tenant/cart`.",
-        "security": [
-          {
-            "TenantAuth": []
-          },
-          {
-            "TenantSubdomain": []
-          }
-        ],
-        "requestBody": {
-          "description": "Request Payload",
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
                 "example": {
-                  "notes": "Please call before 5pm"
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "cart": {
-                          "type": "object",
-                          "example": {
-                            "_id": "6ae2e88d1540b80d32644b57"
-                          }
+                  "success": true,
+                  "message": "Cart item updated successfully",
+                  "data": {
+                    "items": [
+                      {
+                        "_id": "6ae2e88d1540b80d32644b57",
+                        "package_id": "6ae2e6e0a8448da0f3c60dd0",
+                        "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
+                        "cycle_name": "Annual (12 Months)",
+                        "months": 12,
+                        "price": 18000,
+                        "discount": 3600,
+                        "discount_type": "percentage",
+                        "final_price": 14400,
+                        "status": "cart",
+                        "notes": null,
+                        "createdAt": "2026-11-01T09:00:00.000Z",
+                        "updatedAt": "2026-11-01T09:00:00.000Z",
+                        "package": {
+                          "_id": "6ae2e6e0a8448da0f3c60dd0",
+                          "name": "Pro Club Package",
+                          "game_id": {
+                            "_id": "6ae2e6e0a8448da0f3c60dc0",
+                            "name": "Football"
+                          },
+                          "teams": 5,
+                          "players": 30,
+                          "status": true,
+                          "cycles": [
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dd1",
+                              "name": "Quarterly",
+                              "months": 3,
+                              "price": 5000,
+                              "discount": 10,
+                              "discount_type": "percentage"
+                            },
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dd2",
+                              "name": "Annual (12 Months)",
+                              "months": 12,
+                              "price": 18000,
+                              "discount": 20,
+                              "discount_type": "percentage"
+                            }
+                          ]
+                        },
+                        "cycle": {
+                          "_id": "6ae2e6e0a8448da0f3c60dd2",
+                          "name": "Annual (12 Months)",
+                          "months": 12,
+                          "price": 18000,
+                          "discount": 20,
+                          "discount_type": "percentage"
                         }
                       }
-                    }
+                    ],
+                    "count": 1,
+                    "total": 14400
                   }
                 }
               }
@@ -1415,8 +1751,14 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       },
@@ -1424,8 +1766,8 @@
         "tags": [
           "Tenant - Cart & Checkout"
         ],
-        "summary": "Clear the Cart",
-        "description": "Deletes the club's single cart item. 404 when the cart is already empty.",
+        "summary": "Remove a Cart Line / Clear the Cart",
+        "description": "With `?package_id=...` removes that line (404 if it is not in the cart). Without it, clears the whole cart.",
         "security": [
           {
             "TenantAuth": []
@@ -1434,31 +1776,82 @@
             "TenantSubdomain": []
           }
         ],
+        "parameters": [
+          {
+            "name": "package_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Remove only the line of this package. Omit to clear the whole cart."
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Successful operation",
+            "description": "Cart cleared successfully",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": {
-                      "type": "boolean",
-                      "example": true
-                    },
-                    "message": {
-                      "type": "string",
-                      "example": "Cart cleared successfully"
-                    },
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "cleared": {
-                          "type": "object",
-                          "example": true
+                "example": {
+                  "success": true,
+                  "message": "Cart cleared successfully",
+                  "data": {
+                    "items": [
+                      {
+                        "_id": "6ae2e88d1540b80d32644b57",
+                        "package_id": "6ae2e6e0a8448da0f3c60dd0",
+                        "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
+                        "cycle_name": "Annual (12 Months)",
+                        "months": 12,
+                        "price": 18000,
+                        "discount": 3600,
+                        "discount_type": "percentage",
+                        "final_price": 14400,
+                        "status": "cart",
+                        "notes": null,
+                        "createdAt": "2026-11-01T09:00:00.000Z",
+                        "updatedAt": "2026-11-01T09:00:00.000Z",
+                        "package": {
+                          "_id": "6ae2e6e0a8448da0f3c60dd0",
+                          "name": "Pro Club Package",
+                          "game_id": {
+                            "_id": "6ae2e6e0a8448da0f3c60dc0",
+                            "name": "Football"
+                          },
+                          "teams": 5,
+                          "players": 30,
+                          "status": true,
+                          "cycles": [
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dd1",
+                              "name": "Quarterly",
+                              "months": 3,
+                              "price": 5000,
+                              "discount": 10,
+                              "discount_type": "percentage"
+                            },
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dd2",
+                              "name": "Annual (12 Months)",
+                              "months": 12,
+                              "price": 18000,
+                              "discount": 20,
+                              "discount_type": "percentage"
+                            }
+                          ]
+                        },
+                        "cycle": {
+                          "_id": "6ae2e6e0a8448da0f3c60dd2",
+                          "name": "Annual (12 Months)",
+                          "months": 12,
+                          "price": 18000,
+                          "discount": 20,
+                          "discount_type": "percentage"
                         }
                       }
-                    }
+                    ],
+                    "count": 1,
+                    "total": 14400
                   }
                 }
               }
@@ -1470,8 +1863,14 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           }
         }
       }
@@ -1482,7 +1881,7 @@
           "Tenant - Cart & Checkout"
         ],
         "summary": "Checkout the Cart -> Pending Order",
-        "description": "Creates a central `pending` order for the club's cart (no cart id needed) and clears the cart. The late-renewal fine (if any) is charged once. The subscription is extended only after the super admin approves the order. `payment_method_id` and a payment proof (file or URL) are required.",
+        "description": "Checks out the whole cart (no cart id needed): creates one central `pending` order per line, clears the cart, and returns every created order populated with its `package` (including all `cycles`) plus the exact `cycle` that was bought. The late-renewal fine (if any) is charged once. The subscription is extended only after the super admin approves the orders. `payment_method_id` and a payment proof (file or URL) are required.",
         "security": [
           {
             "TenantAuth": []
@@ -1518,16 +1917,70 @@
                       {
                         "_id": "6ae2e88d1540b80d32644b80",
                         "order_number": "ORD-2026-000001",
-                        "status": "pending"
+                        "status": "pending",
+                        "cycle_id": "6ae2e6e0a8448da0f3c60dd2",
+                        "cycle_name": "Annual (12 Months)",
+                        "price": 18000,
+                        "discount": 3600,
+                        "fine": 0,
+                        "final_price": 14400,
+                        "package_id": {
+                          "_id": "6ae2e6e0a8448da0f3c60dd0",
+                          "name": "Pro Club Package",
+                          "teams": 5,
+                          "players": 30,
+                          "cycles": [
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dd1",
+                              "name": "Quarterly",
+                              "months": 3,
+                              "price": 5000,
+                              "discount": 10,
+                              "discount_type": "percentage"
+                            },
+                            {
+                              "_id": "6ae2e6e0a8448da0f3c60dd2",
+                              "name": "Annual (12 Months)",
+                              "months": 12,
+                              "price": 18000,
+                              "discount": 20,
+                              "discount_type": "percentage"
+                            }
+                          ]
+                        },
+                        "cycle": {
+                          "_id": "6ae2e6e0a8448da0f3c60dd2",
+                          "name": "Annual (12 Months)",
+                          "months": 12,
+                          "price": 18000,
+                          "discount": 20,
+                          "discount_type": "percentage"
+                        },
+                        "payment_method_id": {
+                          "_id": "6ae2e6e0a8448da0f3c60df0",
+                          "name": "InstaPay"
+                        }
                       }
                     ],
                     "count": 1,
-                    "total": 4500,
+                    "total": 14400,
                     "payment_proof": "https://example.com/proofs/receipt.jpg"
                   }
                 }
               }
             }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         }
       }

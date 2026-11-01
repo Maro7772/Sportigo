@@ -59,14 +59,75 @@ function singleResponse(propName: string, exampleData: any, status = 200, messag
   };
 }
 
-function standardListParams(extraParams: any[] = []) {
+/** The single-cart payload: `{ items, count, total }` (no cart-line ids). */
+function cartResponse(status = 200, message = "Cart updated successfully") {
+  const exampleItem = {
+    _id: "6ae2e88d1540b80d32644b57",
+    package_id: "6ae2e6e0a8448da0f3c60dd0",
+    cycle_id: "6ae2e6e0a8448da0f3c60dd2",
+    cycle_name: "Annual (12 Months)",
+    months: 12,
+    price: 18000,
+    discount: 3600,
+    discount_type: "percentage",
+    final_price: 14400,
+    status: "cart",
+    notes: null,
+    createdAt: "2026-11-01T09:00:00.000Z",
+    updatedAt: "2026-11-01T09:00:00.000Z",
+    package: {
+      _id: "6ae2e6e0a8448da0f3c60dd0",
+      name: "Pro Club Package",
+      game_id: { _id: "6ae2e6e0a8448da0f3c60dc0", name: "Football" },
+      teams: 5,
+      players: 30,
+      status: true,
+      cycles: [
+        { _id: "6ae2e6e0a8448da0f3c60dd1", name: "Quarterly", months: 3, price: 5000, discount: 10, discount_type: "percentage" },
+        { _id: "6ae2e6e0a8448da0f3c60dd2", name: "Annual (12 Months)", months: 12, price: 18000, discount: 20, discount_type: "percentage" },
+      ],
+    },
+    cycle: {
+      _id: "6ae2e6e0a8448da0f3c60dd2",
+      name: "Annual (12 Months)",
+      months: 12,
+      price: 18000,
+      discount: 20,
+      discount_type: "percentage",
+    },
+  };
+
+  return {
+    [status]: {
+      description: message,
+      content: {
+        "application/json": {
+          example: {
+            success: true,
+            message,
+            data: { items: [exampleItem], count: 1, total: 14400 },
+          },
+        },
+      },
+    },
+    400: { $ref: "#/components/responses/BadRequest" },
+    401: { $ref: "#/components/responses/Unauthorized" },
+    403: { $ref: "#/components/responses/Forbidden" },
+    404: { $ref: "#/components/responses/NotFound" },
+    409: { $ref: "#/components/responses/Conflict" },
+  };
+}
+
+function standardListParams(extraParams: any[] = [], includeStatus = true) {
   return [
     { name: "page", in: "query", schema: { type: "integer", default: 1 }, description: "Page number" },
     { name: "limit", in: "query", schema: { type: "integer", default: 10 }, description: "Items per page (max 100)" },
     { name: "search", in: "query", schema: { type: "string" }, description: "Keyword search" },
     { name: "sort_by", in: "query", schema: { type: "string", default: "createdAt" }, description: "Field to sort by" },
     { name: "order", in: "query", schema: { type: "string", enum: ["asc", "desc"], default: "desc" }, description: "Sort direction" },
-    { name: "status", in: "query", schema: { type: "boolean" }, description: "Filter by active status (true/false)" },
+    ...(includeStatus
+      ? [{ name: "status", in: "query", schema: { type: "boolean" }, description: "Filter by active status (true/false)" }]
+      : []),
     ...extraParams,
   ];
 }
@@ -597,38 +658,57 @@ function addMissingPaths(paths: Record<string, any>) {
   });
 
   // ---------------------------------------------------------------
-  // Tenant - Cart
-  // ---------------------------------------------------------------
-  // ---------------------------------------------------------------
-  // Tenant - Cart (one cart per club, no item ids)
+  // Tenant - Cart (one cart per club, many lines, no cart-line ids)
   // ---------------------------------------------------------------
   addOperation(paths, "/api/tenant/cart", "put", {
     tags: ["Tenant - Cart & Checkout"],
-    summary: "Update the Cart",
+    summary: "Replace the Cart",
     description:
-      "Updates the club's single cart. Sending `package_id` and/or `cycle_id` re-resolves the pricing from the central package.",
+      "Replaces the whole cart with the sent array (useful to sync the client cart in one request). An empty array clears the cart. Sending the same package twice -> 400. Prices are always resolved from the central package/cycle, never from the client.",
     security: TENANT_SECURITY,
-    requestBody: jsonBody({
-      package_id: "6ae2e6e0a8448da0f3c60dd0",
-      cycle_id: "6ae2e6e0a8448da0f3c60dd2",
-      notes: "Switched to the annual cycle",
-    }),
-    responses: singleResponse("cart", { _id: "6ae2e88d1540b80d32644b57", final_price: 14400 }),
+    requestBody: jsonBody(
+      {
+        items: [
+          { package_id: "6ae2e6e0a8448da0f3c60dd0", cycle_id: "6ae2e6e0a8448da0f3c60dd2" },
+          { package_id: "6ae2e6e0a8448da0f3c60dd5", cycle_id: "6ae2e6e0a8448da0f3c60dd6", notes: "Second package" },
+        ],
+      },
+      "The full cart. Each item needs `package_id`; `cycle_id` is required when the package has more than one cycle.",
+    ),
+    responses: cartResponse(200, "Cart updated successfully (2 item(s))"),
   });
   addOperation(paths, "/api/tenant/cart", "patch", {
     tags: ["Tenant - Cart & Checkout"],
-    summary: "Update the Cart (alias)",
-    description: "Same handler as `PUT /api/tenant/cart`.",
+    summary: "Update One Cart Line",
+    description:
+      "Updates the line of the given `package_id` (no cart-line id needed): change its cycle and/or notes. 404 when the package is not in the cart.",
     security: TENANT_SECURITY,
-    requestBody: jsonBody({ notes: "Please call before 5pm" }),
-    responses: singleResponse("cart", { _id: "6ae2e88d1540b80d32644b57" }),
+    requestBody: jsonBody(
+      {
+        package_id: "6ae2e6e0a8448da0f3c60dd0",
+        cycle_id: "6ae2e6e0a8448da0f3c60dd2",
+        notes: "Switched to the annual cycle",
+      },
+      "`package_id` identifies the line; send at least one of `cycle_id` / `notes`.",
+    ),
+    responses: cartResponse(200, "Cart item updated successfully"),
   });
   addOperation(paths, "/api/tenant/cart", "delete", {
     tags: ["Tenant - Cart & Checkout"],
-    summary: "Clear the Cart",
-    description: "Deletes the club's single cart item. 404 when the cart is already empty.",
+    summary: "Remove a Cart Line / Clear the Cart",
+    description:
+      "With `?package_id=...` removes that line (404 if it is not in the cart). Without it, clears the whole cart.",
     security: TENANT_SECURITY,
-    responses: singleResponse("cleared", true, 200, "Cart cleared successfully"),
+    parameters: [
+      {
+        name: "package_id",
+        in: "query",
+        required: false,
+        schema: { type: "string" },
+        description: "Remove only the line of this package. Omit to clear the whole cart.",
+      },
+    ],
+    responses: cartResponse(200, "Cart cleared successfully"),
   });
 
   // ---------------------------------------------------------------
@@ -1906,32 +1986,59 @@ export function buildOpenApiSpec() {
       summary: "List Club Orders & Purchases",
       description: "Returns all past and current package orders made by this club, with approval status and pricing snapshots.",
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
-      parameters: standardListParams([
-        { name: "status", in: "query", schema: { type: "string", enum: ["pending", "paid", "rejected", "cancelled", "refunded"] } },
-      ]),
+      parameters: standardListParams(
+        [
+          {
+            name: "status",
+            in: "query",
+            schema: { type: "string", enum: ["pending", "paid", "rejected", "cancelled", "refunded"] },
+            description: "Filter by order status",
+          },
+        ],
+        false
+      ),
       responses: paginatedResponse("Order", {
         _id: "6ae2e88d1540b80d32644b80",
         order_number: "ORD-2026-000001",
+        status: "pending",
+        cycle_id: "6ae2e6e0a8448da0f3c60dd2",
+        cycle_name: "Annual (12 Months)",
         price: 18000,
         discount: 3600,
         fine: 0,
         final_price: 14400,
-        status: "pending",
-        payment_method_id: { name: "InstaPay" },
-        package_id: { name: "Pro Club Package" },
+        payment_method_id: { _id: "6ae2e6e0a8448da0f3c60df0", name: "InstaPay" },
+        package_id: {
+          _id: "6ae2e6e0a8448da0f3c60dd0",
+          name: "Pro Club Package",
+          teams: 5,
+          players: 30,
+          cycles: [
+            { _id: "6ae2e6e0a8448da0f3c60dd1", name: "Quarterly", months: 3, price: 5000, discount: 10, discount_type: "percentage" },
+            { _id: "6ae2e6e0a8448da0f3c60dd2", name: "Annual (12 Months)", months: 12, price: 18000, discount: 20, discount_type: "percentage" },
+          ],
+        },
+        cycle: {
+          _id: "6ae2e6e0a8448da0f3c60dd2",
+          name: "Annual (12 Months)",
+          months: 12,
+          price: 18000,
+          discount: 20,
+          discount_type: "percentage",
+        },
       }),
     },
     post: {
       tags: ["Tenant - Orders & Invoices"],
       summary: "Direct Package Purchase (Buy Now)",
-      description: "Instantly creates a pending order for this club (without needing separate cart steps). Also logs the purchase in the club's cart collection for synchronization.",
+      description:
+        "Creates a pending order for this club in one step (it does not touch the cart, and it does not clear existing cart lines). `payment_reference` is not accepted from the tenant: only `payment_method_id` + a payment proof (file or URL). The response returns the order populated with its `package` (including all `cycles`) and the exact `cycle` that was bought.",
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
       requestBody: jsonBody({
         package_id: "6ae2e6e0a8448da0f3c60dd0",
         cycle_id: "6ae2e6e0a8448da0f3c60dd2",
         payment_method_id: "6ae2e6e0a8448da0f3c60df0",
         payment_proof: "https://example.com/proofs/receipt.jpg",
-        payment_reference: "INSTAPAY-TXN-9876",
         notes: "Direct checkout from tenant portal",
       }),
       responses: {
@@ -1945,8 +2052,28 @@ export function buildOpenApiSpec() {
                   order: {
                     _id: "6ae2e88d1540b80d32644b80",
                     order_number: "ORD-2026-000001",
-                    final_price: 14400,
                     status: "pending",
+                    cycle_id: "6ae2e6e0a8448da0f3c60dd2",
+                    cycle_name: "Annual (12 Months)",
+                    final_price: 14400,
+                    package_id: {
+                      _id: "6ae2e6e0a8448da0f3c60dd0",
+                      name: "Pro Club Package",
+                      teams: 5,
+                      players: 30,
+                      cycles: [
+                        { _id: "6ae2e6e0a8448da0f3c60dd1", name: "Quarterly", months: 3, price: 5000, discount: 10, discount_type: "percentage" },
+                        { _id: "6ae2e6e0a8448da0f3c60dd2", name: "Annual (12 Months)", months: 12, price: 18000, discount: 20, discount_type: "percentage" },
+                      ],
+                    },
+                    cycle: {
+                      _id: "6ae2e6e0a8448da0f3c60dd2",
+                      name: "Annual (12 Months)",
+                      months: 12,
+                      price: 18000,
+                      discount: 20,
+                      discount_type: "percentage",
+                    },
                   },
                   cart: {
                     _id: "6ae2e88d1540b80d32644b81",
@@ -1958,6 +2085,10 @@ export function buildOpenApiSpec() {
             },
           },
         },
+        400: { $ref: "#/components/responses/BadRequest" },
+        401: { $ref: "#/components/responses/Unauthorized" },
+        403: { $ref: "#/components/responses/Forbidden" },
+        404: { $ref: "#/components/responses/NotFound" },
       },
     },
   };
@@ -1966,6 +2097,8 @@ export function buildOpenApiSpec() {
     get: {
       tags: ["Tenant - Orders & Invoices"],
       summary: "Get Order Details",
+      description:
+        "Returns one order of this club, populated with its `package` (including all `cycles`), the exact `cycle` that was bought, and the payment method. Another club's order -> 403.",
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
       parameters: idParam(),
       responses: singleResponse("order", {
@@ -1973,6 +2106,24 @@ export function buildOpenApiSpec() {
         order_number: "ORD-2026-000001",
         status: "pending",
         final_price: 14400,
+        cycle_id: "6ae2e6e0a8448da0f3c60dd2",
+        cycle_name: "Annual (12 Months)",
+        package_id: {
+          _id: "6ae2e6e0a8448da0f3c60dd0",
+          name: "Pro Club Package",
+          cycles: [
+            { _id: "6ae2e6e0a8448da0f3c60dd1", name: "Quarterly", months: 3, price: 5000, discount: 10, discount_type: "percentage" },
+            { _id: "6ae2e6e0a8448da0f3c60dd2", name: "Annual (12 Months)", months: 12, price: 18000, discount: 20, discount_type: "percentage" },
+          ],
+        },
+        cycle: {
+          _id: "6ae2e6e0a8448da0f3c60dd2",
+          name: "Annual (12 Months)",
+          months: 12,
+          price: 18000,
+          discount: 20,
+          discount_type: "percentage",
+        },
       }),
     },
   };
@@ -1981,13 +2132,36 @@ export function buildOpenApiSpec() {
     post: {
       tags: ["Tenant - Orders & Invoices"],
       summary: "Upload Order Payment Screenshot / Receipt",
+      description:
+        "Uploads (or replaces) the receipt on this club's order. Send `multipart/form-data` with an `image` (or `file`) field. Another club's order -> 403. Response includes the absolute `payment_proof_url`.",
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
       parameters: idParam(),
       requestBody: multipartBody("image"),
-      responses: singleResponse("order", {
-        _id: "6ae2e88d1540b80d32644b80",
-        payment_proof: "/uploads/proof-club-123.png",
-      }),
+      responses: {
+        200: {
+          description: "Payment proof uploaded successfully",
+          content: {
+            "application/json": {
+              example: {
+                success: true,
+                message: "Payment proof uploaded successfully",
+                data: {
+                  order: {
+                    _id: "6ae2e88d1540b80d32644b80",
+                    order_number: "ORD-2026-000001",
+                    payment_proof: "/uploads/proof-club-123.png",
+                  },
+                  payment_proof_url: "http://localhost:4000/uploads/proof-club-123.png",
+                },
+              },
+            },
+          },
+        },
+        400: { $ref: "#/components/responses/BadRequest" },
+        401: { $ref: "#/components/responses/Unauthorized" },
+        403: { $ref: "#/components/responses/Forbidden" },
+        404: { $ref: "#/components/responses/NotFound" },
+      },
     },
   };
 
@@ -2058,48 +2232,21 @@ export function buildOpenApiSpec() {
       tags: ["Tenant - Cart & Checkout"],
       summary: "Get the Cart",
       description:
-        "Returns the club's single cart (or `cart: null` when it is empty) together with the central package/cycles.",
+        "Returns the club's single cart as an array (`items`). Each line is enriched with its central `package` (including all `cycles`) and the exact `cycle` recorded on that line. `count` and `total` are computed for the whole cart.",
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
-      responses: {
-        200: {
-          content: {
-            "application/json": {
-              example: {
-                success: true,
-                data: {
-                  cart: {
-                    _id: "6ae2e88d1540b80d32644b57",
-                    package_id: "6ae2e6e0a8448da0f3c60dd0",
-                    cycle_name: "Quarterly",
-                    months: 3,
-                    price: 5000,
-                    discount: 500,
-                    final_price: 4500,
-                    status: "cart",
-                  },
-                  package: { _id: "6ae2e6e0a8448da0f3c60dd0", name: "Football Pro" },
-                },
-              },
-            },
-          },
-        },
-      },
+      responses: cartResponse(200, "Cart retrieved successfully"),
     },
     post: {
       tags: ["Tenant - Cart & Checkout"],
-      summary: "Add Package to the Cart",
+      summary: "Add a Package to the Cart",
       description:
-        "A club has a single cart: when it already exists the same endpoint updates it and returns 200 instead of creating another row.",
+        "Appends the selected package/cycle as a new cart line and returns the whole cart. Different packages are added as separate lines; adding a package that is already in the cart -> 409. Prices always come from the central package/cycle.",
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
       requestBody: jsonBody({
         package_id: "6ae2e6e0a8448da0f3c60dd0",
         cycle_id: "6ae2e6e0a8448da0f3c60dd1",
       }),
-      responses: singleResponse("cart", {
-        _id: "6ae2e88d1540b80d32644b57",
-        status: "cart",
-        final_price: 4500,
-      }, 201),
+      responses: cartResponse(201, "Cart item added successfully"),
     },
   };
 
@@ -2108,7 +2255,7 @@ export function buildOpenApiSpec() {
       tags: ["Tenant - Cart & Checkout"],
       summary: "Checkout the Cart -> Pending Order",
       description:
-        "Creates a central `pending` order for the club's cart (no cart id needed) and clears the cart. The late-renewal fine (if any) is charged once. The subscription is extended only after the super admin approves the order. `payment_method_id` and a payment proof (file or URL) are required.",
+        "Checks out the whole cart (no cart id needed): creates one central `pending` order per line, clears the cart, and returns every created order populated with its `package` (including all `cycles`) plus the exact `cycle` that was bought. The late-renewal fine (if any) is charged once. The subscription is extended only after the super admin approves the orders. `payment_method_id` and a payment proof (file or URL) are required.",
       security: [{ TenantAuth: [] }, { TenantSubdomain: [] }],
       requestBody: jsonBody({
         payment_method_id: "6ae2e6e0a8448da0f3c60df0",
@@ -2127,16 +2274,45 @@ export function buildOpenApiSpec() {
                       _id: "6ae2e88d1540b80d32644b80",
                       order_number: "ORD-2026-000001",
                       status: "pending",
+                      cycle_id: "6ae2e6e0a8448da0f3c60dd2",
+                      cycle_name: "Annual (12 Months)",
+                      price: 18000,
+                      discount: 3600,
+                      fine: 0,
+                      final_price: 14400,
+                      package_id: {
+                        _id: "6ae2e6e0a8448da0f3c60dd0",
+                        name: "Pro Club Package",
+                        teams: 5,
+                        players: 30,
+                        cycles: [
+                          { _id: "6ae2e6e0a8448da0f3c60dd1", name: "Quarterly", months: 3, price: 5000, discount: 10, discount_type: "percentage" },
+                          { _id: "6ae2e6e0a8448da0f3c60dd2", name: "Annual (12 Months)", months: 12, price: 18000, discount: 20, discount_type: "percentage" },
+                        ],
+                      },
+                      cycle: {
+                        _id: "6ae2e6e0a8448da0f3c60dd2",
+                        name: "Annual (12 Months)",
+                        months: 12,
+                        price: 18000,
+                        discount: 20,
+                        discount_type: "percentage",
+                      },
+                      payment_method_id: { _id: "6ae2e6e0a8448da0f3c60df0", name: "InstaPay" },
                     },
                   ],
                   count: 1,
-                  total: 4500,
+                  total: 14400,
                   payment_proof: "https://example.com/proofs/receipt.jpg",
                 },
               },
             },
           },
         },
+        400: { $ref: "#/components/responses/BadRequest" },
+        401: { $ref: "#/components/responses/Unauthorized" },
+        403: { $ref: "#/components/responses/Forbidden" },
+        404: { $ref: "#/components/responses/NotFound" },
       },
     },
   };
@@ -2716,6 +2892,33 @@ export function buildOpenApiSpec() {
               example: {
                 success: false,
                 error: { code: 404, message: "Resource not found" },
+              },
+            },
+          },
+        },
+        Forbidden: {
+          description:
+            "The token is valid but the account/role cannot perform this action, the club is disabled, or the subscription is expired (scouting workspace only).",
+          content: {
+            "application/json": {
+              example: {
+                success: false,
+                error: {
+                  code: 403,
+                  message: "Your subscription has expired. Please renew to continue.",
+                  details: { subscription: { status: "expired" }, packages: [] },
+                },
+              },
+            },
+          },
+        },
+        Conflict: {
+          description: "The request conflicts with the current state (duplicate, or a protected document).",
+          content: {
+            "application/json": {
+              example: {
+                success: false,
+                error: { code: 409, message: "This package is already in your cart." },
               },
             },
           },

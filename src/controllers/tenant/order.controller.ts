@@ -11,6 +11,7 @@ import { tenantContext, tenantModels } from "../../middlewares/tenant";
 import { resolveCartPricing } from "../../services/tenantCart.service";
 import { evaluateSubscription } from "../../services/subscription.service";
 import { buildInvoiceData, renderInvoiceHtml } from "../../services/invoice.service";
+import { attachCycle } from "../../utils/orderView";
 import {
   getUploadedImage,
   publicUploadUrl,
@@ -67,7 +68,7 @@ export async function listTenantOrders(req: Request, res: Response) {
   ]);
 
   return SuccessResponse(res, {
-    items,
+    items: items.map(attachCycle),
     pagination: buildPaginationMeta(total, page, limit),
   });
 }
@@ -91,7 +92,7 @@ export async function getTenantOrder(req: Request, res: Response) {
     throw new ForbiddenError("This order belongs to another club");
   }
 
-  return SuccessResponse(res, { order });
+  return SuccessResponse(res, { order: attachCycle(order) });
 }
 
 /**
@@ -169,7 +170,7 @@ export async function purchasePackageDirectly(req: Request, res: Response) {
   return SuccessResponse(
     res,
     {
-      order: freshOrder,
+      order: freshOrder ? attachCycle(freshOrder) : null,
       cart,
     },
     201,
@@ -219,7 +220,7 @@ export async function uploadTenantOrderPaymentProof(req: Request, res: Response)
   return SuccessResponse(
     res,
     {
-      order: populated,
+      order: populated ? attachCycle(populated) : null,
       payment_proof_url: absoluteUrl(req, url),
     },
     200,

@@ -498,9 +498,15 @@ curl -X POST http://localhost:4000/api/tenant/auth/login \
 | `notes` | string | |
 
 > **الأسعار مش بتيجي من الكلاينت أبدًا** — بتتحسب من الـ cycle بتاعة الباكدج المركزية.
-> **كل نادي عنده سلة واحدة بس** (document واحد بحالة `cart`)، فكل endpoints السلة
-> مبتاخدش `id`: `POST /cart` بيعمل create أو update لنفس السلة.
-> الـ checkout بيعمل `Order` مركزي بحالة **`pending`** وبيفضّي السلة،
+> **كل نادي عنده سلة واحدة، بس جواها أكتر من سطر** (document لكل باكدج بحالة `cart`)،
+> وكل endpoints السلة مبتاخدش `id`:
+> - `POST /cart` بيضيف سطر جديد (نفس الباكدج مرتين → `409`).
+> - `GET /cart` بيرجّع `items` array (كل سطر معاه `package` + `cycle`).
+> - `PUT /cart` بيستبدل السلة كلها بـ `items[]`، و`PATCH /cart` بيعدّل سطر بالـ `package_id`.
+> - `DELETE /cart` بيفضّي السلة، و`DELETE /cart?package_id=...` بيشيل سطر واحد.
+>
+> الـ checkout بيعمل `Order` مركزي **`pending`** لكل سطر، وبيرجّعهم populated
+> (الباكدج بكل الـ cycles + الـ `cycle` المختار)، وبيفضّي السلة.
 > والاشتراك بيتمدد بس بعد موافقة السوبر أدمن.
 
 #### `settings` (document واحد لكل نادي)
@@ -577,10 +583,11 @@ curl -X POST http://localhost:4000/api/tenant/auth/login \
 | GET/POST/PUT/PATCH/DELETE | `/api/tenant/players` (+`/:id`, `/bulk-delete`, `/bulk`) | اللاعبين — فلتر `?team_id=` / `?game_id=` |
 | GET/POST/PUT/PATCH/DELETE | `/api/tenant/matches` (+`/:id`, `/bulk-delete`, `/bulk`) | الماتشات — فلتر `?team_id=`, `?team1_id=`, `?team2_id=`, `?from=`, `?to=` |
 | GET/POST/PUT/PATCH/DELETE | `/api/tenant/player-progress` (+`/:id`, `/bulk-delete`, `/bulk`) | فلتر `?match_id=`, `?player_id=`, `?action_id=` |
-| GET | `/api/tenant/cart` | السلة الحالية (document واحد) + الباكدج |
-| POST | `/api/tenant/cart` | إضافة باكدج للسلة (أو تحديث السلة الموجودة) |
-| PUT / PATCH | `/api/tenant/cart` | تعديل باكدج/مدة/ملاحظات السلة |
-| DELETE | `/api/tenant/cart` | تفريغ السلة |
+| GET | `/api/tenant/cart` | السلة الحالية: `items[]` (كل سطر + الباكدج + الـ cycle) + `count` + `total` |
+| POST | `/api/tenant/cart` | إضافة باكدج كسطر جديد (نفس الباكدج مرتين → `409`) |
+| PUT | `/api/tenant/cart` | استبدال السلة كلها بـ `items[]` |
+| PATCH | `/api/tenant/cart` | تعديل سطر واحد بالـ `package_id` (الدورة/الملاحظات) |
+| DELETE | `/api/tenant/cart` | تفريغ السلة (`?package_id=` يشيل سطر واحد بس) |
 | POST | `/api/tenant/cart/checkout` | تحويل السلة لأوردر مركزي `pending` (`payment_method_id` + إثبات دفع) |
 | GET | `/api/tenant/packages` (+`/:id`) | تصفح الباكدجات المتاحة مع مددها وأسعارها والخصومات |
 | GET | `/api/tenant/payment-methods` | طرق الدفع المتاحة وتعليمات التحويل |

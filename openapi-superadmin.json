@@ -131,6 +131,40 @@
             }
           }
         }
+      },
+      "Forbidden": {
+        "description": "The token is valid but the account/role cannot perform this action, the club is disabled, or the subscription is expired (scouting workspace only).",
+        "content": {
+          "application/json": {
+            "example": {
+              "success": false,
+              "error": {
+                "code": 403,
+                "message": "Your subscription has expired. Please renew to continue.",
+                "details": {
+                  "subscription": {
+                    "status": "expired"
+                  },
+                  "packages": []
+                }
+              }
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "The request conflicts with the current state (duplicate, or a protected document).",
+        "content": {
+          "application/json": {
+            "example": {
+              "success": false,
+              "error": {
+                "code": 409,
+                "message": "This package is already in your cart."
+              }
+            }
+          }
+        }
       }
     }
   },
