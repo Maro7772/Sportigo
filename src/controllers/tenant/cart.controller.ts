@@ -38,7 +38,6 @@ interface CartLineInput {
 
 function lineFromPricing(pricing: CartPricing, notes?: string | null) {
   return {
-    package_id: pricing.package._id,
     cycle_id: pricing.cycle._id ?? null,
     cycle_name: pricing.cycle_name,
     months: pricing.months,
@@ -70,11 +69,6 @@ async function buildCartPayload(models: TenantModels) {
     return {
       ...item,
       package: pkg,
-      // The exact cycle recorded on this line, resolved from the package's cycles.
-      cycle:
-        pkg?.cycles?.find(
-          (cycle) => String(cycle._id) === String(item.cycle_id),
-        ) ?? null,
     };
   });
 

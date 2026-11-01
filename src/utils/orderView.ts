@@ -21,11 +21,22 @@ interface OrderLike {
   package_id?: unknown;
 }
 
-export function attachCycle<T extends OrderLike>(order: T): T & { cycle: CycleLike | null } {
+export function attachCycle<T extends OrderLike>(
+  order: T,
+): T & { cycle?: CycleLike } {
   const pkg = order.package_id as { cycles?: CycleLike[] } | null | undefined;
-  const cycles = Array.isArray(pkg?.cycles) ? pkg.cycles : [];
 
-  const cycle = cycles.find((item) => String(item._id) === String(order.cycle_id)) ?? null;
+  const cycle =
+    pkg?.cycles?.find(
+      (cycle) => String(cycle._id) === String(order.cycle_id),
+    ) ?? null;
 
-  return { ...order, cycle };
+  if (!cycle) {
+    return order;
+  }
+
+  return {
+    ...order,
+    cycle,
+  };
 }
